@@ -2,6 +2,26 @@
 
 A comprehensive Tampermonkey script that enhances the Tixcraft ticket purchasing experience by automating various tasks and improving the user interface.
 
+## ⚠️ Important Notice
+
+This software is designed for **educational and research purposes only**. Users are responsible for ensuring their use complies with:
+
+- Tixcraft.com's Terms of Service
+- Local laws and regulations regarding automated access to websites
+- Ethical guidelines for web automation
+
+**Use at your own risk and responsibility.**
+
+## 🚀 Quick Start
+
+1. Install [Tampermonkey](https://www.tampermonkey.net/) browser extension
+2. Choose your version:
+   - **main.js** - Standard version with full automation features
+   - **main-time-test.js** - Performance testing version with detailed timing analysis
+3. Copy the script content and create a new Tampermonkey script
+4. Save and enable the script
+5. Navigate to Tixcraft.com to see the assistant panel
+
 ## Features
 
 ### 🎯 **Instant Purchase Navigation**
@@ -169,6 +189,37 @@ This script is designed to work with the current Tixcraft website structure. If 
 - Advanced seat selection with dynamic monitoring
 - Improved UI with floating assistant panel
 - Robust error handling and performance optimizations
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+### Additional Terms
+
+- **Educational Use**: This software is intended for educational and research purposes
+- **Terms of Service**: Users must comply with Tixcraft.com's Terms of Service
+- **Legal Compliance**: Users are responsible for ensuring compliance with local laws
+- **Ethical Use**: This tool should not be used to gain unfair advantages or harm others
+- **User Responsibility**: The authors are not liable for any misuse or consequences
+
+### License Summary
+
+```text
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software to use, modify, and distribute it for educational purposes,
+subject to the following conditions:
+
+- Include copyright notice and license in all copies
+- Software provided "AS IS" without warranty
+- Educational and research use only
+- Comply with applicable Terms of Service
+```
+
+For the complete license text, see [LICENSE](LICENSE).
 
 ---
 
