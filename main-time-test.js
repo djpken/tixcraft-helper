@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Tixcraft assistant
+// @name         Tixcraft Assistant - Time Test Version
 // @namespace    http://tampermonkey.net/
-// @version      3.0
-// @description  Includes activity/game instant purchase navigation, ticket page quick operations, area page display verification code only, quick focus on verification code input
+// @version      3.0-timetest
+// @description  Time-optimized version with detailed performance monitoring for testing automation flow from game page to order page
 // @author       You
 // @match        https://tixcraft.com/*
 // @grant        GM_xmlhttpRequest
@@ -11,6 +11,144 @@
 
 (function () {
   "use strict";
+
+  // =============================================================================
+  // TIME TEST CONFIGURATION & MONITORING SYSTEM
+  // =============================================================================
+
+  // Time measurement system for performance testing based on TEST.md requirements
+  window.TIXCRAFT_TIME_TEST = {
+    enabled: true,
+    startTime: null,
+    checkpoints: {},
+    phases: {
+      T0_GAME_START: 'Game page button click - Start',
+      T1_TICKET_PAGE: 'Ticket page loaded and processed',
+      T2_AREA_PAGE: 'Area page loaded',
+      T3_SEAT_SELECTED: 'Seat selection completed', 
+      T4_VERIFY_PAGE: 'Verify page loaded',
+      T5_ORDER_PAGE: 'Order page reached - TEST COMPLETE'
+    },
+    logs: [],
+    targetTime: 5000, // 5 seconds target as per TEST.md
+    testStarted: false,
+    seatSelectionAttempts: 0,
+    maxSeatAttempts: 10
+  };
+
+  // Start timing measurement
+  function startTimeTest(phase) {
+    if (!window.TIXCRAFT_TIME_TEST.enabled) return;
+    
+    const now = Date.now();
+    if (!window.TIXCRAFT_TIME_TEST.startTime) {
+      window.TIXCRAFT_TIME_TEST.startTime = now;
+      window.TIXCRAFT_TIME_TEST.testStarted = true;
+      console.log('🚀 TIME TEST STARTED - Target: Complete in under 5 seconds');
+    }
+    
+    window.TIXCRAFT_TIME_TEST.checkpoints[phase] = now;
+    const elapsed = now - window.TIXCRAFT_TIME_TEST.startTime;
+    const message = `⏱️ ${phase}: ${elapsed}ms - ${window.TIXCRAFT_TIME_TEST.phases[phase]}`;
+    
+    console.log(message);
+    window.TIXCRAFT_TIME_TEST.logs.push({
+      phase,
+      timestamp: now,
+      elapsed,
+      description: window.TIXCRAFT_TIME_TEST.phases[phase]
+    });
+
+    // Check if we reached the final phase
+    if (phase === 'T5_ORDER_PAGE') {
+      completeTimeTest();
+    }
+  }
+
+  // Complete the time test and show results
+  function completeTimeTest() {
+    const totalTime = Date.now() - window.TIXCRAFT_TIME_TEST.startTime;
+    const target = window.TIXCRAFT_TIME_TEST.targetTime;
+    const success = totalTime <= target;
+    
+    console.log('🏁 ============ TIME TEST COMPLETED ============');
+    console.log(`⏱️ Total Time: ${totalTime}ms`);
+    console.log(`🎯 Target Time: ${target}ms`);
+    console.log(`${success ? '✅ SUCCESS' : '❌ FAILED'} - ${success ? 'Performance target met!' : 'Exceeded target time'}`);
+    console.log(`📊 Seat Selection Attempts: ${window.TIXCRAFT_TIME_TEST.seatSelectionAttempts}`);
+    
+    // Show detailed phase breakdown
+    console.log('📋 Phase Breakdown:');
+    let lastTime = window.TIXCRAFT_TIME_TEST.startTime;
+    window.TIXCRAFT_TIME_TEST.logs.forEach(log => {
+      const phaseTime = log.timestamp - lastTime;
+      console.log(`   ${log.phase}: ${phaseTime}ms (${log.description})`);
+      lastTime = log.timestamp;
+    });
+
+    // Store results for analysis
+    window.TIXCRAFT_TIME_TEST.results = {
+      totalTime,
+      target,
+      success,
+      phases: window.TIXCRAFT_TIME_TEST.logs,
+      seatAttempts: window.TIXCRAFT_TIME_TEST.seatSelectionAttempts
+    };
+
+    // Calculate and display success rate
+    let successRate;
+    if (window.TIXCRAFT_TIME_TEST.seatSelectionAttempts <= 3) {
+      successRate = 100;
+    } else if (window.TIXCRAFT_TIME_TEST.seatSelectionAttempts <= 5) {
+      successRate = 80;
+    } else {
+      successRate = 60;
+    }
+    console.log(`🎯 Seat Selection Success Rate: ${successRate}% (Target: >90%)`);
+
+    // Force update the time test panel to show completion
+    setTimeout(() => {
+      updateTimeTestPanel();
+    }, 100);
+  }
+
+  // Get current test status (for console debugging)
+  window.getTimeTestStatus = function() {
+    if (!window.TIXCRAFT_TIME_TEST.testStarted) {
+      return { 
+        status: 'Not started', 
+        message: 'Navigate to a game page to start the automation test',
+        phases: window.TIXCRAFT_TIME_TEST.phases
+      };
+    }
+    
+    const elapsed = Date.now() - window.TIXCRAFT_TIME_TEST.startTime;
+    const currentPhase = Object.keys(window.TIXCRAFT_TIME_TEST.checkpoints).pop();
+    
+    return {
+      status: 'Running',
+      elapsed,
+      currentPhase,
+      phases: window.TIXCRAFT_TIME_TEST.logs,
+      target: window.TIXCRAFT_TIME_TEST.targetTime,
+      seatAttempts: window.TIXCRAFT_TIME_TEST.seatSelectionAttempts
+    };
+  };
+
+  // Reset time test (for console debugging)
+  window.resetTimeTest = function() {
+    window.TIXCRAFT_TIME_TEST.startTime = null;
+    window.TIXCRAFT_TIME_TEST.checkpoints = {};
+    window.TIXCRAFT_TIME_TEST.logs = [];
+    window.TIXCRAFT_TIME_TEST.testStarted = false;
+    window.TIXCRAFT_TIME_TEST.seatSelectionAttempts = 0;
+    console.log('🔄 Time test reset - Ready for new test run');
+  };
+
+  // Export time test results (for analysis)
+  window.getTimeTestResults = function() {
+    return window.TIXCRAFT_TIME_TEST.results || { message: 'No completed test results available' };
+  };
 
   // =============================================================================
   // CONSTANTS & CONFIGURATION
@@ -155,6 +293,20 @@
       const currentUrl = window.location.href;
       const pageType = getPageType(currentUrl);
 
+      // TIME TEST: Record page load timestamps based on TEST.md flow
+      if (pageType === "game") {
+        // Game page - starting point for automation test
+        console.log('🎮 Game page detected - Ready to start automation test');
+      } else if (pageType === "ticket") {
+        startTimeTest('T1_TICKET_PAGE');
+      } else if (pageType === "area") {
+        startTimeTest('T2_AREA_PAGE');
+      } else if (pageType === "verify") {
+        startTimeTest('T4_VERIFY_PAGE');
+      } else if (pageType === "order") {
+        startTimeTest('T5_ORDER_PAGE');
+      }
+
       removeUnnecessaryElements(pageType);
 
       if (pageType === "detail") {
@@ -183,7 +335,7 @@
         loadAndDisplayCaptcha();
       }
     } catch (error) {
-      // Handle error silently
+      console.log('Error in executeScript:', error);
     }
   }
 
@@ -219,6 +371,9 @@
 
   function autoSelectFirstAvailableSeat() {
     try {
+      // TIME TEST: Increment seat selection attempts
+      window.TIXCRAFT_TIME_TEST.seatSelectionAttempts++;
+      
       preloadSeats();
       
       const availableSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS_AVAILABLE);
@@ -227,6 +382,9 @@
         const firstSeat = availableSeats[0];
         sessionStorage.setItem('last_seat_attempt', Date.now().toString());
         firstSeat.click();
+        
+        // TIME TEST: Record successful seat selection
+        setTimeout(() => startTimeTest('T3_SEAT_SELECTED'), 100);
         return true;
       } else {
         const allSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
@@ -235,6 +393,9 @@
           if (style.opacity === '1' || seat.style.opacity === '1') {
             sessionStorage.setItem('last_seat_attempt', Date.now().toString());
             seat.click();
+            
+            // TIME TEST: Record successful seat selection
+            setTimeout(() => startTimeTest('T3_SEAT_SELECTED'), 100);
             return true;
           }
         }
@@ -445,6 +606,9 @@
 
   window.testSeatSearch = function(seatValue) {
     try {
+      // TIME TEST: Increment seat selection attempts
+      window.TIXCRAFT_TIME_TEST.seatSelectionAttempts++;
+      
       sessionStorage.setItem('last_seat_attempt', Date.now().toString());
       preloadSeats();
       const upperSeatValue = seatValue.toUpperCase();
@@ -453,6 +617,9 @@
         const seatData = PRELOADED_DATA.seatMap.get(upperSeatValue);
         if (seatData.available) {
           seatData.element.click();
+          
+          // TIME TEST: Record successful seat selection
+          setTimeout(() => startTimeTest('T3_SEAT_SELECTED'), 100);
           return true;
         }
         return false;
@@ -464,6 +631,9 @@
           const style = window.getComputedStyle(element);
           if (style.opacity === '1' || element.style.opacity === '1') {
             element.click();
+            
+            // TIME TEST: Record successful seat selection
+            setTimeout(() => startTimeTest('T3_SEAT_SELECTED'), 100);
             return true;
           }
         }
@@ -476,6 +646,9 @@
           const style = window.getComputedStyle(element);
           if (style.opacity === '1' || element.style.opacity === '1') {
             element.click();
+            
+            // TIME TEST: Record successful seat selection
+            setTimeout(() => startTimeTest('T3_SEAT_SELECTED'), 100);
             return true;
           }
         }
@@ -718,7 +891,9 @@
         const selectedButton = gameListButtons[Math.min(selectedShowtimeIndex, gameListButtons.length - 1)];
         const targetUrl = selectedButton.getAttribute("data-href");
 
-        console.log(`Selected showtime ${Math.min(selectedShowtimeIndex + 1, gameListButtons.length)} from gameList container, navigating to:`, targetUrl);
+        // TIME TEST: Start the automation test when clicking game button
+        startTimeTest('T0_GAME_START');
+        console.log(`🎯 TIME TEST: Selected showtime ${Math.min(selectedShowtimeIndex + 1, gameListButtons.length)} from gameList container, navigating to:`, targetUrl);
         window.location.href = targetUrl;
         return true;
       }
@@ -729,7 +904,9 @@
       const selectedButton = fallbackButtons[Math.min(selectedShowtimeIndex, fallbackButtons.length - 1)];
       const targetUrl = selectedButton.getAttribute("data-href");
 
-      console.log(`Selected showtime ${Math.min(selectedShowtimeIndex + 1, fallbackButtons.length)} via fallback method, navigating to:`, targetUrl);
+      // TIME TEST: Start the automation test when clicking game button
+      startTimeTest('T0_GAME_START');
+      console.log(`🎯 TIME TEST: Selected showtime ${Math.min(selectedShowtimeIndex + 1, fallbackButtons.length)} via fallback method, navigating to:`, targetUrl);
       window.location.href = targetUrl;
       return true;
     }
@@ -1757,11 +1934,269 @@
     }
   };
 
+  // =============================================================================
+  // TIME TEST MONITORING PANEL
+  // =============================================================================
+
+  function createTimeTestPanel() {
+    let panel = document.getElementById("tixcraft-time-test-panel");
+    
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "tixcraft-time-test-panel";
+      panel.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 280px;
+        padding: 15px;
+        background: linear-gradient(135deg, #2c3e50, #34495e);
+        color: white;
+        border-radius: 10px;
+        box-shadow: 0 6px 25px rgba(0,0,0,0.4);
+        z-index: 10001;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        border: 2px solid #3498db;
+      `;
+
+      const title = document.createElement("div");
+      title.innerHTML = "⏱️ TIXCRAFT TIME TEST<br><small>Target: Complete in < 5 seconds</small>";
+      title.style.cssText = `
+        font-weight: bold;
+        margin-bottom: 12px;
+        color: #ecf0f1;
+        text-align: center;
+        border-bottom: 1px solid #4a6574;
+        padding-bottom: 8px;
+      `;
+
+      const status = document.createElement("div");
+      status.id = "time-test-status";
+      status.style.cssText = "margin-bottom: 12px;";
+
+      const phases = document.createElement("div");
+      phases.id = "time-test-phases";
+      phases.style.cssText = "font-size: 10px; max-height: 150px; overflow-y: auto;";
+
+      const controls = document.createElement("div");
+      controls.style.cssText = "margin-top: 12px; text-align: center;";
+
+      const resetBtn = document.createElement("button");
+      resetBtn.textContent = "Reset Test";
+      resetBtn.style.cssText = `
+        background: #e74c3c;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 10px;
+        margin: 0 3px;
+        transition: background 0.3s;
+      `;
+      resetBtn.onmouseover = () => resetBtn.style.background = '#c0392b';
+      resetBtn.onmouseout = () => resetBtn.style.background = '#e74c3c';
+      resetBtn.onclick = () => {
+        window.resetTimeTest();
+        updateTimeTestPanel();
+      };
+
+      const statusBtn = document.createElement("button");
+      statusBtn.textContent = "Show Status";
+      statusBtn.style.cssText = `
+        background: #3498db;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 10px;
+        margin: 0 3px;
+        transition: background 0.3s;
+      `;
+      statusBtn.onmouseover = () => statusBtn.style.background = '#2980b9';
+      statusBtn.onmouseout = () => statusBtn.style.background = '#3498db';
+      statusBtn.onclick = () => {
+        console.log('⏱️ Current Test Status:', window.getTimeTestStatus());
+        if (window.TIXCRAFT_TIME_TEST.results) {
+          console.log('📊 Last Test Results:', window.getTimeTestResults());
+        }
+      };
+
+      controls.appendChild(resetBtn);
+      controls.appendChild(statusBtn);
+
+      panel.appendChild(title);
+      panel.appendChild(status);
+      panel.appendChild(phases);
+      panel.appendChild(controls);
+      
+      document.body.appendChild(panel);
+    }
+
+    return panel;
+  }
+
+  // Make updateTimeTestPanel globally accessible
+  window.updateTimeTestPanel = updateTimeTestPanel;
+
+  function updateTimeTestPanel() {
+    const panel = document.getElementById("tixcraft-time-test-panel");
+    if (!panel) return;
+
+    const status = panel.querySelector("#time-test-status");
+    const phases = panel.querySelector("#time-test-phases");
+
+    // Check if test is completed (reached T5_ORDER_PAGE)
+    const isCompleted = window.TIXCRAFT_TIME_TEST.results || 
+                       window.TIXCRAFT_TIME_TEST.checkpoints['T5_ORDER_PAGE'];
+
+    if (isCompleted && window.TIXCRAFT_TIME_TEST.testStarted) {
+      // Test completed - show final results
+      const results = window.TIXCRAFT_TIME_TEST.results;
+      const totalTime = results ? results.totalTime : 
+                       (Date.now() - window.TIXCRAFT_TIME_TEST.startTime);
+      const target = window.TIXCRAFT_TIME_TEST.targetTime;
+      const success = totalTime <= target;
+      const successRate = window.TIXCRAFT_TIME_TEST.seatSelectionAttempts <= 3 ? 100 : 
+                         (window.TIXCRAFT_TIME_TEST.seatSelectionAttempts <= 5 ? 80 : 60);
+      
+      status.innerHTML = `
+        <div style="text-align: center; margin-bottom: 8px;">
+          <div style="font-size: 14px; color: ${success ? '#27ae60' : '#e74c3c'}; font-weight: bold;">
+            ${success ? '🏆 TEST COMPLETED' : '⚠️ TEST COMPLETED'}
+          </div>
+          <div style="font-size: 10px; color: #bdc3c7;">Phase 5: Order Page Reached</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin: 3px 0;">
+          <span>Total Time:</span><span style="color: ${success ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${totalTime}ms</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin: 3px 0;">
+          <span>Target:</span><span style="color: #3498db">${target}ms</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin: 3px 0;">
+          <span>Result:</span><span style="color: ${success ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${success ? 'SUCCESS' : 'FAILED'}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin: 3px 0;">
+          <span>Seat Attempts:</span><span style="color: #9b59b6">${window.TIXCRAFT_TIME_TEST.seatSelectionAttempts}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin: 3px 0;">
+          <span>Success Rate:</span><span style="color: ${successRate >= 90 ? '#27ae60' : '#f39c12'}">${successRate}%</span>
+        </div>
+      `;
+
+      phases.innerHTML = `
+        <div style="color: #bdc3c7; margin-bottom: 6px; font-weight: bold;">✅ Test Flow Completed:</div>
+        ${window.TIXCRAFT_TIME_TEST.logs.map((log, index) => {
+          const phaseTime = index > 0 ? 
+            log.timestamp - window.TIXCRAFT_TIME_TEST.logs[index - 1].timestamp : 
+            log.elapsed;
+          return `
+            <div style="margin-bottom: 3px; padding: 3px; background: rgba(39, 174, 96, 0.2); border-radius: 3px; border-left: 3px solid #27ae60;">
+              <div style="color: #27ae60; font-weight: bold;">${log.phase} ✓</div>
+              <div style="color: #ecf0f1; font-size: 9px;">+${phaseTime}ms (Total: ${log.elapsed}ms)</div>
+              <div style="color: #95a5a6; font-size: 8px;">${log.description}</div>
+            </div>
+          `;
+        }).join('')}
+        <div style="text-align: center; margin-top: 8px; padding: 5px; background: rgba(52, 152, 219, 0.2); border-radius: 3px;">
+          <div style="color: #3498db; font-size: 10px; font-weight: bold;">🎯 Test Analysis</div>
+          <div style="color: #bdc3c7; font-size: 8px;">Performance: ${success ? 'Target Met' : 'Target Exceeded'}</div>
+          <div style="color: #bdc3c7; font-size: 8px;">Efficiency: ${successRate >= 90 ? 'Excellent' : successRate >= 70 ? 'Good' : 'Needs Improvement'}</div>
+        </div>
+      `;
+    } else if (window.TIXCRAFT_TIME_TEST.testStarted) {
+      // Test running - show current progress
+      const elapsed = Date.now() - window.TIXCRAFT_TIME_TEST.startTime;
+      const target = window.TIXCRAFT_TIME_TEST.targetTime;
+      const progress = Math.min((elapsed / target) * 100, 100);
+      const isOverTime = elapsed > target;
+      
+      status.innerHTML = `
+        <div style="display: flex; justify-content: space-between;">
+          <span>Status:</span><span style="color: #f39c12">🚀 Running</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Elapsed:</span><span style="color: ${isOverTime ? '#e74c3c' : '#f39c12'}">${elapsed}ms</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Target:</span><span style="color: #3498db">${target}ms</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Attempts:</span><span style="color: #9b59b6">${window.TIXCRAFT_TIME_TEST.seatSelectionAttempts}</span>
+        </div>
+        <div style="background: #34495e; height: 6px; margin: 8px 0; border-radius: 3px; overflow: hidden;">
+          <div style="background: ${isOverTime ? '#e74c3c' : '#27ae60'}; height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+        </div>
+      `;
+
+      phases.innerHTML = `
+        <div style="color: #bdc3c7; margin-bottom: 6px; font-weight: bold;">📊 Phase Progress:</div>
+        ${window.TIXCRAFT_TIME_TEST.logs.map((log, index) => {
+          const phaseTime = index > 0 ? 
+            log.timestamp - window.TIXCRAFT_TIME_TEST.logs[index - 1].timestamp : 
+            log.elapsed;
+          return `
+            <div style="margin-bottom: 3px; padding: 3px; background: rgba(52, 73, 94, 0.5); border-radius: 3px;">
+              <div style="color: #3498db; font-weight: bold;">${log.phase} ✓</div>
+              <div style="color: #ecf0f1; font-size: 9px;">+${phaseTime}ms (Total: ${log.elapsed}ms)</div>
+              <div style="color: #95a5a6; font-size: 8px;">${log.description}</div>
+            </div>
+          `;
+        }).join('')}
+      `;
+    } else {
+      // Test not started - show ready state
+      status.innerHTML = `
+        <div style="text-align: center; color: #f39c12;">
+          <div style="font-size: 12px; margin-bottom: 5px;">⚡ Ready to Test</div>
+          <div style="color: #bdc3c7; font-size: 9px;">Navigate to game page and click a ticket button to start the automation test</div>
+        </div>
+      `;
+      phases.innerHTML = `
+        <div style="color: #bdc3c7; text-align: center; margin: 10px 0;">
+          <div style="margin-bottom: 5px;">Test Phases (T0 → T5):</div>
+          <div style="font-size: 9px; color: #95a5a6;">
+            T0: Game Start → T1: Ticket Page → T2: Area Page → T3: Seat Selected → T4: Verify Page → T5: Order Complete
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // =============================================================================
+  // INITIALIZATION & STARTUP
+  // =============================================================================
+
+  console.log('⏱️ Tixcraft Time Test Version loaded');
+  console.log('🎯 Performance Target: Complete automation flow in under 5 seconds');
+  console.log('📊 Console Commands:');
+  console.log('  - getTimeTestStatus() : Get current test status');
+  console.log('  - resetTimeTest() : Reset test timer');
+  console.log('  - getTimeTestResults() : Get last test results');
+
+  // Initialize time test panel when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      setTimeout(() => {
+        createTimeTestPanel();
+        setInterval(updateTimeTestPanel, 200);
+      }, 500);
+    });
+  } else {
+    setTimeout(() => {
+      createTimeTestPanel();
+      setInterval(updateTimeTestPanel, 200);
+    }, 500);
+  }
+
   if (getPageType() === "area") {
     setTimeout(() => {
       window.startRefreshHeartbeat();
     }, 2000);
   }
 
-  console.log('✅ Tixcraft Assistant running');
+  console.log('✅ Tixcraft Time Test Assistant ready - Check the monitoring panel in top-right corner');
 })();
