@@ -850,30 +850,24 @@
       /^https:\/\/tixcraft\.com\/activity\/game\/.*/.test(currentUrl) ||
       currentUrl === "https://tixcraft.com/activity/game"
     ) {
-      // 實現每分鐘的第0、10、20、30、40、50秒刷新
-      const targetSeconds = [0, 10, 20, 30, 40, 50];
-      
-      function scheduleNextRefresh() {
+      // 實現每整秒刷新（0、1、2、3...59秒）
+      function scheduleNextSecond() {
         const now = new Date();
-        const currentSecond = now.getSeconds();
+        const currentMillisecond = now.getMilliseconds();
         
-        // 找到下一個目標秒數
-        let nextTargetSecond = targetSeconds.find(sec => sec > currentSecond);
-        if (!nextTargetSecond) {
-          // 如果當前秒數已超過所有目標秒數，則等待下一分鐘的第0秒
-          nextTargetSecond = targetSeconds[0] + 60;
-        }
+        // 計算到下一個整秒的等待時間
+        const waitTime = 1000 - currentMillisecond;
         
-        // 計算等待時間（毫秒）
-        const waitTime = (nextTargetSecond - currentSecond) * 1000;
+        console.log(`⏰ Game page: scheduling refresh in ${waitTime}ms (next whole second)`);
         
         refreshInterval = setTimeout(() => {
+          console.log('🔄 Game page refreshing at whole second');
           window.location.reload();
         }, waitTime);
       }
       
-      // 開始調度
-      scheduleNextRefresh();
+      // 開始調度到下一個整秒
+      scheduleNextSecond();
     }
   }
 
