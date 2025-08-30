@@ -13,6 +13,154 @@
   "use strict";
 
   // =============================================================================
+  // EARLY DOM INTERCEPTION - 在瀏覽器分析前攔截
+  // =============================================================================
+  
+  // 攔截 DOM 元素創建，在瀏覽器分析前就移除不需要的元素
+  function interceptDOMCreation() {
+    // 保存原始的 appendChild 和 insertBefore 方法
+    const originalAppendChild = Node.prototype.appendChild;
+    const originalInsertBefore = Node.prototype.insertBefore;
+    
+    // 檢查元素是否應該被阻擋
+    function shouldBlockElement(element) {
+      if (!element || !element.tagName) return false;
+      
+      const tagName = element.tagName.toLowerCase();
+      const className = element.className || '';
+      const id = element.id || '';
+      const src = element.src || '';
+      
+      // 阻擋 header 和 footer
+      if (tagName === 'header' || tagName === 'footer') {
+        return true;
+      }
+      
+      // 阻擋特定 ID
+      if (id === 'ad-footer' || id === 'event-banner') {
+        return true;
+      }
+      
+      // 阻擋包含 event-banner 的 class
+      if (className.includes('event-banner')) {
+        return true;
+      }
+      
+      // 阻擋不必要的追蹤和廣告腳本
+      if (tagName === 'script' && src) {
+        // Google Analytics 和 GTM 
+        if (src.includes('googletagmanager.com') || 
+            src.includes('google-analytics.com') || 
+            src.includes('gtag/js') ||
+            src.includes('doubleclick.net') ||
+            src.includes('eps-mgr')) {
+          return true;
+        }
+      }
+      
+      // 阻擋不必要的 CSS 檔案
+      if (tagName === 'link' && element.rel === 'stylesheet') {
+        const href = element.href || '';
+        // 阻擋 Font Awesome（如果不需要圖示）
+        if (href.includes('font-awesome')) {
+          return true;
+        }
+        // 阻擋 OwlCarousel（如果不是在輪播頁面）
+        if (href.includes('owl.carousel') && !window.location.href.includes('/activity/detail/')) {
+          return true;
+        }
+        // 阻擋 Fancybox（如果不需要彈窗功能）
+        if (href.includes('fancybox') && !window.location.href.includes('/ticket/')) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    
+    // 攔截 appendChild
+    Node.prototype.appendChild = function(child) {
+      if (shouldBlockElement(child)) {
+        // 創建一個空的文檔片段來"吞掉"這個元素
+        return document.createDocumentFragment();
+      }
+      return originalAppendChild.call(this, child);
+    };
+    
+    // 攔截 insertBefore
+    Node.prototype.insertBefore = function(newNode, referenceNode) {
+      if (shouldBlockElement(newNode)) {
+        return document.createDocumentFragment();
+      }
+      return originalInsertBefore.call(this, newNode, referenceNode);
+    };
+  }
+  
+  // 立即執行攔截（在任何 DOM 內容載入前）
+  interceptDOMCreation();
+
+  // =============================================================================
+  // EARLY GAME PAGE REDIRECT - 遊戲頁面早期跳轉
+  // =============================================================================
+  
+  function tryEarlyGamePageRedirect() {
+    const currentUrl = window.location.href;
+    
+    if (/^https:\/\/tixcraft\.com\/activity\/game\/.*/.test(currentUrl) || currentUrl === "https://tixcraft.com/activity/game") {
+      console.log(currentUrl)
+      
+      // 攔截 innerHTML 設定來檢查動態插入的內容
+      const originalInnerHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+      
+      if (originalInnerHTMLDescriptor && originalInnerHTMLDescriptor.set) {
+        const originalInnerHTMLSetter = originalInnerHTMLDescriptor.set;
+        
+        Object.defineProperty(Element.prototype, 'innerHTML', {
+          set: function(value) {
+            try {
+              if (typeof value === 'string') {
+                // 檢查是否包含 ticket/area 連結（更寬鬆的匹配）
+                const ticketAreaMatches = value.match(/data-href=["'](https:\/\/tixcraft\.com\/ticket\/area\/[^"']+)["']/g);
+                
+                if (ticketAreaMatches && ticketAreaMatches.length > 0) {
+                  const selectedShowtimeIndex = parseInt(localStorage.getItem("tixcraft_showtime_index") || "0");
+                  
+                  const ticketUrls = ticketAreaMatches.map(match => {
+                    const urlMatch = match.match(/data-href=["']([^"']+)["']/);
+                    return urlMatch ? urlMatch[1] : null;
+                  }).filter(url => url !== null);
+                  
+                  if (ticketUrls.length > 0) {
+                    const selectedUrl = ticketUrls[Math.min(selectedShowtimeIndex, ticketUrls.length - 1)];
+                    
+                    console.log(`Early redirect (innerHTML): Found ${ticketUrls.length} showtime(s), selecting #${Math.min(selectedShowtimeIndex + 1, ticketUrls.length)}`);
+                    console.log(`Button detected with data-href: ${selectedUrl}`);
+                    console.log(`Redirecting to: ${selectedUrl}`);
+                    
+                    window.location.href = selectedUrl;
+                    return;
+                  }
+                }
+                
+                // 注意：元素過濾已在 interceptDOMCreation() 中處理，此處不需重複
+              }
+              
+              originalInnerHTMLSetter.call(this, value);
+            } catch (error) {
+              // 發生錯誤時，使用原始 setter
+              originalInnerHTMLSetter.call(this, value);
+            }
+          },
+          get: originalInnerHTMLDescriptor.get
+        });
+      }
+    }
+  }
+  
+  // 執行早期跳轉檢查
+  tryEarlyGamePageRedirect();
+
+  // =============================================================================
   // CONSTANTS & CONFIGURATION
   // =============================================================================
 
@@ -63,10 +211,18 @@
 
   window.TIXCRAFT_PERFORMANCE = {
     enabled: true,
-    refreshRate: 10000,
+    refreshRate: 10000, // 減少刷新頻率以節省資源
     seatMonitorRate: 100,
     formMonitorRate: 200,
-    captchaMonitorRate: 500
+    captchaMonitorRate: 500,
+    // 新增載入優化配置
+    loadingOptimization: {
+      blockUnnecessaryRequests: true,
+      preloadCriticalResources: true,
+      deferNonCriticalScripts: true,
+      enableResourceHints: true,
+      minifyInlineStyles: true
+    }
   };
 
   // =============================================================================
@@ -122,31 +278,67 @@
   // MAIN ENTRY POINT
   // =============================================================================
 
-  // Global error handler
-  window.addEventListener('error', function(e) {
-    if (e.filename && (e.filename.includes('gtm') || e.filename.includes('analytics'))) {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
+  // =============================================================================
+  // RESOURCE PRELOADING OPTIMIZATION - 資源預載入優化
+  // =============================================================================
+  
+  function optimizeResourceLoading() {
+    // 預載入關鍵 CSS
+    const criticalCSS = [
+      '/css/style.css',
+      '/css/ui-responsive.css',
+      '/assets/1cde3b4c/dist/css/bootstrap.css'
+    ];
+    
+    criticalCSS.forEach(href => {
+      if (!document.querySelector(`link[href*="${href.split('/').pop()}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'style';
+        link.href = href;
+        link.onload = function() {
+          this.rel = 'stylesheet';
+        };
+        document.head.appendChild(link);
+      }
+    });
+    
+    // 預載入關鍵 JavaScript（僅在需要時）
+    const pageType = getPageType();
+    if (pageType === 'ticket' || pageType === 'area') {
+      const criticalJS = [
+        '//cdnjs.cloudflare.com/ajax/libs/jquery/3.6.1/jquery.min.js'
+      ];
+      
+      criticalJS.forEach(src => {
+        if (!document.querySelector(`script[src*="${src.split('/').pop()}"]`)) {
+          const script = document.createElement('script');
+          script.src = src;
+          script.async = true;
+          document.head.appendChild(script);
+        }
+      });
     }
-    if (e.message && (e.message.includes('gtm') || e.message.includes('Uncaught [object Object]'))) {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    }
-    if (e.message && e.message.includes('[object Object]')) {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    }
-  }, true);
+    
+    // DNS 預解析
+    const domains = [
+      'cdnjs.cloudflare.com',
+      'tixcraft.com'
+    ];
+    
+    domains.forEach(domain => {
+      if (!document.querySelector(`link[rel="dns-prefetch"][href*="${domain}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'dns-prefetch';
+        link.href = `//${domain}`;
+        document.head.appendChild(link);
+      }
+    });
+  }
 
-  window.addEventListener('unhandledrejection', function(e) {
-    if (e.reason && (e.reason.toString().includes('gtm') || e.reason.toString().includes('analytics'))) {
-      e.preventDefault();
-      return false;
-    }
-  });
+  // =============================================================================
+  // MAIN ENTRY POINT - 主要入口點
+  // =============================================================================
 
   async function executeScript() {
     try {
@@ -155,7 +347,7 @@
       const currentUrl = window.location.href;
       const pageType = getPageType(currentUrl);
 
-      removeUnnecessaryElements(pageType);
+      optimizeResourceLoading();
 
       if (pageType === "detail") {
         redirectIfDetailPath();
@@ -191,12 +383,6 @@
   // =============================================================================
   // LOGIC FUNCTIONS - Core Business Logic
   // =============================================================================
-
-  // Check if this is a target page
-  function isTargetPage() {
-    const currentUrl = window.location.href;
-    return /^https:\/\/tixcraft\.com\/.*/.test(currentUrl);
-  }
 
   // Check page type
   function getPageType(url = window.location.href) {
@@ -341,14 +527,6 @@
   function handleGamePage() {
     setupAutoRefresh();
     assistantPanel = createBookingControlPanels();
-    
-    // Monitor for ticket buttons and auto-navigate
-    monitorForTicketButtons();
-    
-    // Also monitor for any dynamically loaded buttons
-    setTimeout(() => {
-      monitorForTicketButtons();
-    }, 1000);
   }
 
   function handleTicketPage() {
@@ -737,31 +915,7 @@
     return false;
   }
 
-  function monitorForTicketButtons() {
-    if (findAndNavigateToTicket()) {
-      return;
-    }
-
-    const observer = new MutationObserver((mutations) => {
-      for (let mutation of mutations) {
-        if (mutation.addedNodes.length > 0) {
-          if (findAndNavigateToTicket()) {
-            observer.disconnect();
-            return;
-          }
-        }
-      }
-    });
-
-    observer.observe(document.body || document.documentElement, {
-      childList: true,
-      subtree: true,
-    });
-
-    setTimeout(() => {
-      observer.disconnect();
-    }, 2000);
-  }
+  
 
   // Path replacement functionality
   function redirectIfDetailPath() {
@@ -794,47 +948,71 @@
   }
 
   function removeUnnecessaryElements(pageType) {
-    try {
-      const shouldRemoveHeaders = pageType !== "unknown";
-      
-      const headers = document.querySelectorAll('header');
-      const footers = document.querySelectorAll('footer');
-      const adFooters = document.querySelectorAll('#ad-footer');
-      const eventBanners = document.querySelectorAll('.event-banner, #event-banner, [class*="event-banner"]');
-      let removedCount = 0;
-
-      if (shouldRemoveHeaders) {
-        headers.forEach(header => {
-          if (header && header.parentNode) {
-            header.remove();
-            removedCount++;
+    // 大部分元素已經在 DOM 創建時被攔截，這裡只處理漏網之魚和額外優化
+    setTimeout(() => {
+      try {
+        // 快速清理任何可能漏掉的元素
+        const remainingElements = document.querySelectorAll('header, footer, #ad-footer, .event-banner, #event-banner, [class*="event-banner"]');
+        
+        if (remainingElements.length > 0) {
+          remainingElements.forEach(element => {
+            if (element && element.parentNode) {
+              element.style.display = 'none';
+              element.remove();
+            }
+          });
+        }
+        
+        // 移除不必要的內嵌腳本和樣式（如果它們逃過了早期攔截）
+        const unnecessaryScripts = document.querySelectorAll('script[src*="googletagmanager"], script[src*="gtag"], script[src*="doubleclick"], script[src*="eps-mgr"]');
+        unnecessaryScripts.forEach(script => {
+          if (script && script.parentNode) {
+            script.remove();
           }
         });
+        
+        // 根據頁面類型移除特定資源
+        if (pageType !== 'ticket') {
+          // 非購票頁面不需要 Fancybox
+          const fancyboxElements = document.querySelectorAll('link[href*="fancybox"], script[src*="fancybox"]');
+          fancyboxElements.forEach(element => {
+            if (element && element.parentNode) {
+              element.remove();
+            }
+          });
+        }
+        
+        if (pageType !== 'detail') {
+          // 非詳情頁面不需要輪播功能
+          const owlElements = document.querySelectorAll('link[href*="owl.carousel"], script[src*="owl.carousel"]');
+          owlElements.forEach(element => {
+            if (element && element.parentNode) {
+              element.remove();
+            }
+          });
+        }
+        
+        // 延遲載入圖片（如果還沒有 loading="lazy"）
+        const images = document.querySelectorAll('img:not([loading])');
+        images.forEach(img => {
+          if (img.getBoundingClientRect().top > window.innerHeight) {
+            img.loading = 'lazy';
+          }
+        });
+        
+        // 預連接重要的外部資源
+        if (!document.querySelector('link[rel="preconnect"][href*="cdnjs.cloudflare.com"]')) {
+          const preconnect = document.createElement('link');
+          preconnect.rel = 'preconnect';
+          preconnect.href = 'https://cdnjs.cloudflare.com';
+          preconnect.crossOrigin = '';
+          document.head.appendChild(preconnect);
+        }
+        
+      } catch (error) {
+        // Handle error silently
       }
-
-      footers.forEach(footer => {
-        if (footer && footer.parentNode) {
-          footer.remove();
-          removedCount++;
-        }
-      });
-
-      adFooters.forEach(adFooter => {
-        if (adFooter && adFooter.parentNode) {
-          adFooter.remove();
-          removedCount++;
-        }
-      });
-
-      eventBanners.forEach(eventBanner => {
-        if (eventBanner && eventBanner.parentNode) {
-          eventBanner.remove();
-          removedCount++;
-        }
-      });
-    } catch (error) {
-      // Handle error silently
-    }
+    }, 50); // 減少延遲時間，因為工作量已經大幅減少
   }
 
   // Auto-refresh captcha for game page
@@ -1184,14 +1362,31 @@
         const value = capturaInput.value;
         localStorage.setItem("tixcraft_captura_value", value);
         
-        document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"]').forEach(input => {
-          if (input !== capturaInput) {
-            input.value = value;
-          }
-        });
+        // Only update page elements when on ticket pages and input has 4 characters
+        const currentUrl = window.location.href;
+        const isTicketPage = /^https:\/\/tixcraft\.com\/ticket\/ticket\/.*/.test(currentUrl);
         
-        if (typeof autoFillVerificationCodes === 'function') {
-          autoFillVerificationCodes();
+        if (isTicketPage && value.length === 4) {
+          document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"]').forEach(input => {
+            if (input !== capturaInput) {
+              input.value = value;
+            }
+          });
+          
+          if (typeof autoFillVerificationCodes === 'function') {
+            autoFillVerificationCodes();
+          }
+        } else if (!isTicketPage) {
+          // For non-ticket pages, update immediately as before
+          document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"]').forEach(input => {
+            if (input !== capturaInput) {
+              input.value = value;
+            }
+          });
+          
+          if (typeof autoFillVerificationCodes === 'function') {
+            autoFillVerificationCodes();
+          }
         }
       });
 
@@ -1333,7 +1528,6 @@
       buttonSection.style.cssText = `
                 margin-bottom: 12px;
                 padding-bottom: 12px;
-                border-bottom: 1px solid #e9ecef;
             `;
 
       const showtimeLabel = document.createElement("label");
@@ -1350,7 +1544,6 @@
       showtimeSelect.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
-                border: 1px solid #ced4da;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
@@ -1378,7 +1571,6 @@
       verifySection.style.cssText = `
                 margin-bottom: 12px;
                 padding-bottom: 12px;
-                border-bottom: 1px solid #e9ecef;
             `;
 
       const verifyLabel = document.createElement("label");
@@ -1397,7 +1589,6 @@
       verifyInput.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
-                border: 1px solid #ced4da;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
@@ -1418,7 +1609,6 @@
       seatSection.style.cssText = `
                 margin-bottom: 12px;
                 padding-bottom: 12px;
-                border-bottom: 1px solid #e9ecef;
             `;
 
       // Seat checkbox and label container
@@ -1464,11 +1654,10 @@
 
       const seatInput = document.createElement("input");
       seatInput.type = "text";
-      seatInput.placeholder = "e.g. C1 (empty = auto select)";
+      seatInput.placeholder = "e.g. C1 (empty = auto)";
       seatInput.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
-                border: 1px solid #ced4da;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
@@ -1574,15 +1763,13 @@
     createPersistentCaptchaViewerPanel();
   }
 
-   if (isTargetPage()) {
-     executeScript();
+   executeScript();
 
-     if (document.readyState === "loading") {
-       document.addEventListener("DOMContentLoaded", executeScript);
-     }
-
-     window.testSeatSearch = window.testSeatSearch;
+   if (document.readyState === "loading") {
+     document.addEventListener("DOMContentLoaded", executeScript);
    }
+
+   window.testSeatSearch = window.testSeatSearch;
 
    const elementObserver = new MutationObserver((mutations) => {
       let dynamicRemovedCount = 0;
