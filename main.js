@@ -850,24 +850,47 @@
       /^https:\/\/tixcraft\.com\/activity\/game\/.*/.test(currentUrl) ||
       currentUrl === "https://tixcraft.com/activity/game"
     ) {
-      // 實現每整秒刷新（0、1、2、3...59秒）
-      function scheduleNextSecond() {
+      // 實現每2秒刷新（0、2、4、6...58秒）
+      function scheduleNextRefresh() {
         const now = new Date();
+        const currentSecond = now.getSeconds();
         const currentMillisecond = now.getMilliseconds();
         
-        // 計算到下一個整秒的等待時間
-        const waitTime = 1000 - currentMillisecond;
+        // 計算到下一個偶數秒的等待時間
+        let nextTargetSecond = currentSecond;
+        if (currentSecond % 2 === 1) {
+          // 如果當前是奇數秒，等到下一個偶數秒
+          nextTargetSecond = currentSecond + 1;
+        } else {
+          // 如果當前是偶數秒，等到下下個偶數秒
+          nextTargetSecond = currentSecond + 2;
+        }
         
-        console.log(`⏰ Game page: scheduling refresh in ${waitTime}ms (next whole second)`);
+        // 處理秒數超過60的情況
+        if (nextTargetSecond >= 60) {
+          nextTargetSecond = nextTargetSecond % 60;
+        }
+        
+        // 計算等待時間（毫秒）
+        let waitTime;
+        if (currentSecond % 2 === 1) {
+          // 奇數秒，等到下一個偶數秒
+          waitTime = (1000 - currentMillisecond);
+        } else {
+          // 偶數秒，等2秒到下下個偶數秒
+          waitTime = (2000 - currentMillisecond);
+        }
+        
+        console.log(`⏰ Game page: scheduling refresh in ${waitTime}ms (next even second: ${nextTargetSecond})`);
         
         refreshInterval = setTimeout(() => {
-          console.log('🔄 Game page refreshing at whole second');
+          console.log('🔄 Game page refreshing at even second');
           window.location.reload();
         }, waitTime);
       }
       
-      // 開始調度到下一個整秒
-      scheduleNextSecond();
+      // 開始調度到下一個偶數秒
+      scheduleNextRefresh();
     }
   }
 
