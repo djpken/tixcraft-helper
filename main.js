@@ -12,10 +12,6 @@
 (function () {
   "use strict";
 
-  // =============================================================================
-  // EARLY DOM INTERCEPTION - 在瀏覽器分析前攔截
-  // =============================================================================
-  
   // 攔截 DOM 元素創建，在瀏覽器分析前就移除不需要的元素
   function interceptDOMCreation() {
     // 保存原始的 appendChild 和 insertBefore 方法
@@ -100,67 +96,6 @@
   interceptDOMCreation();
 
   // =============================================================================
-  // EARLY GAME PAGE REDIRECT - 遊戲頁面早期跳轉
-  // =============================================================================
-  
-  function tryEarlyGamePageRedirect() {
-    const currentUrl = window.location.href;
-    
-    if (/^https:\/\/tixcraft\.com\/activity\/game\/.*/.test(currentUrl) || currentUrl === "https://tixcraft.com/activity/game") {
-      console.log(currentUrl)
-      
-      // 攔截 innerHTML 設定來檢查動態插入的內容
-      const originalInnerHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-      
-      if (originalInnerHTMLDescriptor && originalInnerHTMLDescriptor.set) {
-        const originalInnerHTMLSetter = originalInnerHTMLDescriptor.set;
-        
-        Object.defineProperty(Element.prototype, 'innerHTML', {
-          set: function(value) {
-            try {
-              if (typeof value === 'string') {
-                // 檢查是否包含 ticket/area 連結（更寬鬆的匹配）
-                const ticketAreaMatches = value.match(/data-href=["'](https:\/\/tixcraft\.com\/ticket\/area\/[^"']+)["']/g);
-                
-                if (ticketAreaMatches && ticketAreaMatches.length > 0) {
-                  const selectedShowtimeIndex = parseInt(localStorage.getItem("tixcraft_showtime_index") || "0");
-                  
-                  const ticketUrls = ticketAreaMatches.map(match => {
-                    const urlMatch = match.match(/data-href=["']([^"']+)["']/);
-                    return urlMatch ? urlMatch[1] : null;
-                  }).filter(url => url !== null);
-                  
-                  if (ticketUrls.length > 0) {
-                    const selectedUrl = ticketUrls[Math.min(selectedShowtimeIndex, ticketUrls.length - 1)];
-                    
-                    console.log(`Early redirect (innerHTML): Found ${ticketUrls.length} showtime(s), selecting #${Math.min(selectedShowtimeIndex + 1, ticketUrls.length)}`);
-                    console.log(`Button detected with data-href: ${selectedUrl}`);
-                    console.log(`Redirecting to: ${selectedUrl}`);
-                    
-                    window.location.href = selectedUrl;
-                    return;
-                  }
-                }
-                
-                // 注意：元素過濾已在 interceptDOMCreation() 中處理，此處不需重複
-              }
-              
-              originalInnerHTMLSetter.call(this, value);
-            } catch (error) {
-              // 發生錯誤時，使用原始 setter
-              originalInnerHTMLSetter.call(this, value);
-            }
-          },
-          get: originalInnerHTMLDescriptor.get
-        });
-      }
-    }
-  }
-  
-  // 執行早期跳轉檢查
-  tryEarlyGamePageRedirect();
-
-  // =============================================================================
   // CONSTANTS & CONFIGURATION
   // =============================================================================
 
@@ -211,18 +146,11 @@
 
   window.TIXCRAFT_PERFORMANCE = {
     enabled: true,
-    refreshRate: 10000, // 減少刷新頻率以節省資源
+    refreshRate: 10000,
+    areaRefreshRate: 1200, // area頁面每秒檢查
     seatMonitorRate: 100,
     formMonitorRate: 200,
-    captchaMonitorRate: 500,
-    // 新增載入優化配置
-    loadingOptimization: {
-      blockUnnecessaryRequests: true,
-      preloadCriticalResources: true,
-      deferNonCriticalScripts: true,
-      enableResourceHints: true,
-      minifyInlineStyles: true
-    }
+    captchaMonitorRate: 500
   };
 
   // =============================================================================
@@ -278,67 +206,31 @@
   // MAIN ENTRY POINT
   // =============================================================================
 
-  // =============================================================================
-  // RESOURCE PRELOADING OPTIMIZATION - 資源預載入優化
-  // =============================================================================
-  
-  function optimizeResourceLoading() {
-    // 預載入關鍵 CSS
-    const criticalCSS = [
-      '/css/style.css',
-      '/css/ui-responsive.css',
-      '/assets/1cde3b4c/dist/css/bootstrap.css'
-    ];
-    
-    criticalCSS.forEach(href => {
-      if (!document.querySelector(`link[href*="${href.split('/').pop()}"]`)) {
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.as = 'style';
-        link.href = href;
-        link.onload = function() {
-          this.rel = 'stylesheet';
-        };
-        document.head.appendChild(link);
-      }
-    });
-    
-    // 預載入關鍵 JavaScript（僅在需要時）
-    const pageType = getPageType();
-    if (pageType === 'ticket' || pageType === 'area') {
-      const criticalJS = [
-        '//cdnjs.cloudflare.com/ajax/libs/jquery/3.6.1/jquery.min.js'
-      ];
-      
-      criticalJS.forEach(src => {
-        if (!document.querySelector(`script[src*="${src.split('/').pop()}"]`)) {
-          const script = document.createElement('script');
-          script.src = src;
-          script.async = true;
-          document.head.appendChild(script);
-        }
-      });
+  // Global error handler
+  window.addEventListener('error', function(e) {
+    if (e.filename && (e.filename.includes('gtm') || e.filename.includes('analytics'))) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
     }
-    
-    // DNS 預解析
-    const domains = [
-      'cdnjs.cloudflare.com',
-      'tixcraft.com'
-    ];
-    
-    domains.forEach(domain => {
-      if (!document.querySelector(`link[rel="dns-prefetch"][href*="${domain}"]`)) {
-        const link = document.createElement('link');
-        link.rel = 'dns-prefetch';
-        link.href = `//${domain}`;
-        document.head.appendChild(link);
-      }
-    });
-  }
+    if (e.message && (e.message.includes('gtm') || e.message.includes('Uncaught [object Object]'))) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+    if (e.message && e.message.includes('[object Object]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }, true);
 
-  // =============================================================================
-  // MAIN ENTRY POINT - 主要入口點
-  // =============================================================================
+  window.addEventListener('unhandledrejection', function(e) {
+    if (e.reason && (e.reason.toString().includes('gtm') || e.reason.toString().includes('analytics'))) {
+      e.preventDefault();
+      return false;
+    }
+  });
 
   async function executeScript() {
     try {
@@ -347,7 +239,7 @@
       const currentUrl = window.location.href;
       const pageType = getPageType(currentUrl);
 
-      optimizeResourceLoading();
+      removeUnnecessaryElements(pageType);
 
       if (pageType === "detail") {
         redirectIfDetailPath();
@@ -383,6 +275,12 @@
   // =============================================================================
   // LOGIC FUNCTIONS - Core Business Logic
   // =============================================================================
+
+  // Check if this is a target page
+  function isTargetPage() {
+    const currentUrl = window.location.href;
+    return /^https:\/\/tixcraft\.com\/.*/.test(currentUrl);
+  }
 
   // Check page type
   function getPageType(url = window.location.href) {
@@ -440,6 +338,8 @@
       const captchaInput = document.querySelector("#persistent-captura-input");
       if (captchaInput) {
         captchaInput.focus();
+        // 確保驗證碼圖片已更新
+        updatePersistentCaptchaImage();
       } else {
         createPersistentCaptchaViewerPanel();
         setTimeout(() => {
@@ -447,6 +347,8 @@
           if (newCaptchaInput) {
             newCaptchaInput.focus();
           }
+          // 創建面板後立即更新驗證碼圖片
+          updatePersistentCaptchaImage();
         }, 100);
       }
     }, 300);
@@ -527,6 +429,14 @@
   function handleGamePage() {
     setupAutoRefresh();
     assistantPanel = createBookingControlPanels();
+    
+    // Monitor for ticket buttons and auto-navigate
+    monitorForTicketButtons();
+    
+    // Also monitor for any dynamically loaded buttons
+    setTimeout(() => {
+      monitorForTicketButtons();
+    }, 1000);
   }
 
   function handleTicketPage() {
@@ -851,30 +761,12 @@
       clearInterval(areaRefreshInterval);
     }
     
-    let consecutiveIdleCount = 0;
+    console.log('🔄 Area auto-refresh started - direct refresh every', window.TIXCRAFT_PERFORMANCE.areaRefreshRate, 'ms');
     
     areaRefreshInterval = setInterval(() => {
-      const now = Date.now();
-      
-      const currentActiveElement = document.activeElement;
-      const hasUserInput = currentActiveElement && (
-        currentActiveElement.tagName === 'INPUT' || 
-        currentActiveElement.tagName === 'SELECT' ||
-        currentActiveElement.tagName === 'TEXTAREA'
-      );
-      
-      const lastSeatAttempt = parseInt(sessionStorage.getItem('last_seat_attempt') || '0');
-      const recentAttempt = now - lastSeatAttempt < 300;
-      
-      if (!hasUserInput && !recentAttempt) {
-        consecutiveIdleCount++;
-        if (consecutiveIdleCount >= 1) {
-          window.location.reload();
-        }
-      } else {
-        consecutiveIdleCount = 0;
-      }
-    }, window.TIXCRAFT_PERFORMANCE.refreshRate);
+      console.log('🔄 Area page refreshing now');
+      window.location.reload();
+    }, window.TIXCRAFT_PERFORMANCE.areaRefreshRate);
   }
   
   function stopAreaAutoRefresh() {
@@ -915,7 +807,31 @@
     return false;
   }
 
-  
+  function monitorForTicketButtons() {
+    if (findAndNavigateToTicket()) {
+      return;
+    }
+
+    const observer = new MutationObserver((mutations) => {
+      for (let mutation of mutations) {
+        if (mutation.addedNodes.length > 0) {
+          if (findAndNavigateToTicket()) {
+            observer.disconnect();
+            return;
+          }
+        }
+      }
+    });
+
+    observer.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+
+    setTimeout(() => {
+      observer.disconnect();
+    }, 2000);
+  }
 
   // Path replacement functionality
   function redirectIfDetailPath() {
@@ -934,85 +850,82 @@
       /^https:\/\/tixcraft\.com\/activity\/game\/.*/.test(currentUrl) ||
       currentUrl === "https://tixcraft.com/activity/game"
     ) {
-      refreshInterval = setInterval(() => {
-        window.location.reload();
-      }, 10000);
+      // 實現每分鐘的第0、10、20、30、40、50秒刷新
+      const targetSeconds = [0, 10, 20, 30, 40, 50];
+      
+      function scheduleNextRefresh() {
+        const now = new Date();
+        const currentSecond = now.getSeconds();
+        
+        // 找到下一個目標秒數
+        let nextTargetSecond = targetSeconds.find(sec => sec > currentSecond);
+        if (!nextTargetSecond) {
+          // 如果當前秒數已超過所有目標秒數，則等待下一分鐘的第0秒
+          nextTargetSecond = targetSeconds[0] + 60;
+        }
+        
+        // 計算等待時間（毫秒）
+        const waitTime = (nextTargetSecond - currentSecond) * 1000;
+        
+        refreshInterval = setTimeout(() => {
+          window.location.reload();
+        }, waitTime);
+      }
+      
+      // 開始調度
+      scheduleNextRefresh();
     }
   }
 
   function stopAutoRefresh() {
     if (refreshInterval) {
-      clearInterval(refreshInterval);
+      clearTimeout(refreshInterval);
       refreshInterval = null;
     }
   }
 
   function removeUnnecessaryElements(pageType) {
-    // 大部分元素已經在 DOM 創建時被攔截，這裡只處理漏網之魚和額外優化
-    setTimeout(() => {
-      try {
-        // 快速清理任何可能漏掉的元素
-        const remainingElements = document.querySelectorAll('header, footer, #ad-footer, .event-banner, #event-banner, [class*="event-banner"]');
-        
-        if (remainingElements.length > 0) {
-          remainingElements.forEach(element => {
-            if (element && element.parentNode) {
-              element.style.display = 'none';
-              element.remove();
-            }
-          });
-        }
-        
-        // 移除不必要的內嵌腳本和樣式（如果它們逃過了早期攔截）
-        const unnecessaryScripts = document.querySelectorAll('script[src*="googletagmanager"], script[src*="gtag"], script[src*="doubleclick"], script[src*="eps-mgr"]');
-        unnecessaryScripts.forEach(script => {
-          if (script && script.parentNode) {
-            script.remove();
+    try {
+      const shouldRemoveHeaders = pageType !== "unknown";
+      
+      const headers = document.querySelectorAll('header');
+      const footers = document.querySelectorAll('footer');
+      const adFooters = document.querySelectorAll('#ad-footer');
+      const eventBanners = document.querySelectorAll('.event-banner, #event-banner, [class*="event-banner"]');
+      let removedCount = 0;
+
+      if (shouldRemoveHeaders) {
+        headers.forEach(header => {
+          if (header && header.parentNode) {
+            header.remove();
+            removedCount++;
           }
         });
-        
-        // 根據頁面類型移除特定資源
-        if (pageType !== 'ticket') {
-          // 非購票頁面不需要 Fancybox
-          const fancyboxElements = document.querySelectorAll('link[href*="fancybox"], script[src*="fancybox"]');
-          fancyboxElements.forEach(element => {
-            if (element && element.parentNode) {
-              element.remove();
-            }
-          });
-        }
-        
-        if (pageType !== 'detail') {
-          // 非詳情頁面不需要輪播功能
-          const owlElements = document.querySelectorAll('link[href*="owl.carousel"], script[src*="owl.carousel"]');
-          owlElements.forEach(element => {
-            if (element && element.parentNode) {
-              element.remove();
-            }
-          });
-        }
-        
-        // 延遲載入圖片（如果還沒有 loading="lazy"）
-        const images = document.querySelectorAll('img:not([loading])');
-        images.forEach(img => {
-          if (img.getBoundingClientRect().top > window.innerHeight) {
-            img.loading = 'lazy';
-          }
-        });
-        
-        // 預連接重要的外部資源
-        if (!document.querySelector('link[rel="preconnect"][href*="cdnjs.cloudflare.com"]')) {
-          const preconnect = document.createElement('link');
-          preconnect.rel = 'preconnect';
-          preconnect.href = 'https://cdnjs.cloudflare.com';
-          preconnect.crossOrigin = '';
-          document.head.appendChild(preconnect);
-        }
-        
-      } catch (error) {
-        // Handle error silently
       }
-    }, 50); // 減少延遲時間，因為工作量已經大幅減少
+
+      footers.forEach(footer => {
+        if (footer && footer.parentNode) {
+          footer.remove();
+          removedCount++;
+        }
+      });
+
+      adFooters.forEach(adFooter => {
+        if (adFooter && adFooter.parentNode) {
+          adFooter.remove();
+          removedCount++;
+        }
+      });
+
+      eventBanners.forEach(eventBanner => {
+        if (eventBanner && eventBanner.parentNode) {
+          eventBanner.remove();
+          removedCount++;
+        }
+      });
+    } catch (error) {
+      // Handle error silently
+    }
   }
 
   // Auto-refresh captcha for game page
@@ -1169,9 +1082,21 @@
   function getAndStoreCaptcha() {
     const existingImg = document.querySelector("#TicketForm_verifyCode-image");
     if (existingImg && existingImg.src) {
-      const fullUrl = existingImg.src.startsWith("/")
+      let fullUrl = existingImg.src.startsWith("/")
         ? `https://tixcraft.com${existingImg.src}`
         : existingImg.src;
+
+      // 處理captcha URL，確保有最新的timestamp
+      if (fullUrl.includes('/ticket/captcha')) {
+        const currentTimestamp = Date.now();
+        
+        if (fullUrl.includes('timestamp=')) {
+          fullUrl = fullUrl.replace(/timestamp=\d+/, `timestamp=${currentTimestamp}`);
+        } else {
+          const separator = fullUrl.includes('?') ? '&' : '?';
+          fullUrl = `${fullUrl}${separator}timestamp=${currentTimestamp}`;
+        }
+      }
 
       storedCaptchaUrl = fullUrl;
       currentCaptchaUrl = fullUrl;
@@ -1288,15 +1213,29 @@
       const existingCaptchaUrl = getAndStoreCaptcha();
       if (existingCaptchaUrl) {
         updateCaptchaDisplay(existingCaptchaUrl, "Existing page captcha");
+        // 同時更新持久化面板
+        updatePersistentCaptchaImage();
       }
     } else if (isAreaPage) {
+      // 確保持久化面板存在
+      if (!document.getElementById("tixcraft-captcha-viewer-panel")) {
+        createPersistentCaptchaViewerPanel();
+      }
+      
       const storedCaptcha = getStoredCaptcha();
       if (storedCaptcha) {
         updateCaptchaDisplay(storedCaptcha, "Stored captcha");
+        // 更新持久化面板圖片
+        updatePersistentCaptchaImage();
       } else {
         const existingCaptchaUrl = getAndStoreCaptcha();
         if (existingCaptchaUrl) {
           updateCaptchaDisplay(existingCaptchaUrl, "Existing page captcha");
+          // 更新持久化面板圖片
+          updatePersistentCaptchaImage();
+        } else {
+          // 即使沒有找到驗證碼，也要更新持久化面板（可能會隱藏圖片）
+          updatePersistentCaptchaImage();
         }
       }
     }
@@ -1307,7 +1246,76 @@
   // UI COMPONENTS & CSS STYLING
   // =============================================================================
 
+  function updatePersistentCaptchaImage() {
+    const persistentImg = document.getElementById("persistent-captcha-image");
+    if (!persistentImg) return;
+    
+    let imageUrl = null;
+    
+    // 首先嘗試從頁面中的驗證碼圖片獲取
+    const pageImg = document.querySelector("#TicketForm_verifyCode-image");
+    if (pageImg && pageImg.src) {
+      imageUrl = pageImg.src.startsWith("/")
+        ? `https://tixcraft.com${pageImg.src}`
+        : pageImg.src;
+    } else {
+      // 如果頁面中沒有驗證碼圖片，嘗試從localStorage獲取
+      const storedCaptcha = getStoredCaptcha();
+      if (storedCaptcha) {
+        imageUrl = storedCaptcha;
+      } else {
+        // 如果沒有儲存的驗證碼，嘗試構建一個標準的captcha URL
+        const pageType = getPageType();
+        if (pageType === "area") {
+          console.log('🔍 No captcha found, constructing default captcha URL for area page');
+          imageUrl = `https://tixcraft.com/ticket/captcha?timestamp=${Date.now()}`;
+        }
+      }
+    }
+    
+    if (imageUrl) {
+      // 處理特殊的captcha URL格式，添加timestamp參數
+      if (imageUrl.includes('/ticket/captcha')) {
+        const currentTimestamp = Date.now();
+        
+        // 如果URL已經有timestamp參數，替換它
+        if (imageUrl.includes('timestamp=')) {
+          imageUrl = imageUrl.replace(/timestamp=\d+/, `timestamp=${currentTimestamp}`);
+        } else {
+          // 如果沒有timestamp參數，添加它
+          const separator = imageUrl.includes('?') ? '&' : '?';
+          imageUrl = `${imageUrl}${separator}timestamp=${currentTimestamp}`;
+        }
+      } else {
+        // 對於其他URL，添加時間戳避免快取
+        const separator = imageUrl.includes('?') ? '&' : '?';
+        imageUrl = `${imageUrl}${separator}t=${Date.now()}`;
+      }
+      
+      console.log('🖼️ Updating captcha image:', imageUrl);
+      persistentImg.src = imageUrl;
+      persistentImg.style.display = "block";
+    } else {
+      // 如果沒有找到任何驗證碼圖片，隱藏圖片元素
+      console.log('❌ No captcha image found, hiding image element');
+      persistentImg.style.display = "none";
+    }
+  }
+
   function createPersistentCaptchaViewerPanel() {
+    // 確保DOM已經載入
+    if (!document.body) {
+      // 如果body還不存在，等待DOM載入
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createPersistentCaptchaViewerPanel);
+        return;
+      } else {
+        // 如果readyState不是loading但body仍然不存在，延遲執行
+        setTimeout(createPersistentCaptchaViewerPanel, 100);
+        return;
+      }
+    }
+
     let captchaViewerPanel = document.getElementById("tixcraft-captcha-viewer-panel");
     
     if (!captchaViewerPanel) {
@@ -1343,6 +1351,28 @@
                 border-bottom: 1px solid #e9ecef;
             `;
 
+      // 添加驗證碼圖片
+      const captchaImg = document.createElement("img");
+      captchaImg.id = "persistent-captcha-image";
+      captchaImg.style.cssText = `
+                max-width: 100%;
+                height: auto;
+                margin-bottom: 8px;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                cursor: pointer;
+            `;
+      
+      // 點擊圖片刷新
+      captchaImg.addEventListener("click", () => {
+        updatePersistentCaptchaImage();
+      });
+      
+      captchaContent.appendChild(captchaImg);
+      
+      // 初始載入圖片
+      updatePersistentCaptchaImage();
+
       const capturaInput = document.createElement("input");
       capturaInput.type = "text";
       capturaInput.placeholder = "Enter captura code";
@@ -1362,25 +1392,14 @@
         const value = capturaInput.value;
         localStorage.setItem("tixcraft_captura_value", value);
         
-        // Only update page elements when on ticket pages and input has 4 characters
-        const currentUrl = window.location.href;
-        const isTicketPage = /^https:\/\/tixcraft\.com\/ticket\/ticket\/.*/.test(currentUrl);
-        
-        if (isTicketPage && value.length === 4) {
-          document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"]').forEach(input => {
+        // 只有當輸入超過4個字符時才同步到其他input
+        if (value.length >= 4) {
+          document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"], input[name="checkCode"]').forEach(input => {
             if (input !== capturaInput) {
               input.value = value;
-            }
-          });
-          
-          if (typeof autoFillVerificationCodes === 'function') {
-            autoFillVerificationCodes();
-          }
-        } else if (!isTicketPage) {
-          // For non-ticket pages, update immediately as before
-          document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"]').forEach(input => {
-            if (input !== capturaInput) {
-              input.value = value;
+              // 觸發change事件
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
             }
           });
           
@@ -1393,9 +1412,11 @@
       captchaViewerPanel.appendChild(captchaContent);
       captchaViewerPanel.appendChild(capturaInput);
       
-      document.body.appendChild(captchaViewerPanel);
-      
-      protectPersistentPanel(captchaViewerPanel);
+      // 安全地添加到body
+      if (document.body) {
+        document.body.appendChild(captchaViewerPanel);
+        protectPersistentPanel(captchaViewerPanel);
+      }
     } else {
       captchaViewerPanel.style.display = "block";
       captchaViewerPanel.style.visibility = "visible";
@@ -1405,6 +1426,9 @@
       if (capturaInput) {
         capturaInput.value = localStorage.getItem("tixcraft_captura_value") || "";
       }
+      
+      // 更新驗證碼圖片
+      updatePersistentCaptchaImage();
     }
     
     return captchaViewerPanel;
@@ -1528,6 +1552,7 @@
       buttonSection.style.cssText = `
                 margin-bottom: 12px;
                 padding-bottom: 12px;
+                border-bottom: 1px solid #e9ecef;
             `;
 
       const showtimeLabel = document.createElement("label");
@@ -1544,6 +1569,7 @@
       showtimeSelect.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
+                border: 1px solid #ced4da;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
@@ -1571,6 +1597,7 @@
       verifySection.style.cssText = `
                 margin-bottom: 12px;
                 padding-bottom: 12px;
+                border-bottom: 1px solid #e9ecef;
             `;
 
       const verifyLabel = document.createElement("label");
@@ -1589,6 +1616,7 @@
       verifyInput.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
+                border: 1px solid #ced4da;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
@@ -1609,6 +1637,7 @@
       seatSection.style.cssText = `
                 margin-bottom: 12px;
                 padding-bottom: 12px;
+                border-bottom: 1px solid #e9ecef;
             `;
 
       // Seat checkbox and label container
@@ -1654,10 +1683,11 @@
 
       const seatInput = document.createElement("input");
       seatInput.type = "text";
-      seatInput.placeholder = "e.g. C1 (empty = auto)";
+      seatInput.placeholder = "e.g. C1 (empty = auto select)";
       seatInput.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
+                border: 1px solid #ced4da;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
@@ -1757,19 +1787,39 @@
   // Initialize persistent captcha panel immediately (cross-page)
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      createPersistentCaptchaViewerPanel();
+      setTimeout(createPersistentCaptchaViewerPanel, 100);
     });
+  } else if (document.body) {
+    // DOM已經載入且body存在
+    setTimeout(createPersistentCaptchaViewerPanel, 100);
   } else {
-    createPersistentCaptchaViewerPanel();
+    // DOM載入但body可能還不存在，等待一下
+    setTimeout(() => {
+      if (document.body) {
+        createPersistentCaptchaViewerPanel();
+      } else {
+        setTimeout(createPersistentCaptchaViewerPanel, 200);
+      }
+    }, 100);
   }
 
-   executeScript();
+   if (isTargetPage()) {
+     executeScript();
 
-   if (document.readyState === "loading") {
-     document.addEventListener("DOMContentLoaded", executeScript);
+     if (document.readyState === "loading") {
+       document.addEventListener("DOMContentLoaded", executeScript);
+     }
+
+     window.testSeatSearch = window.testSeatSearch;
+     
+     // 啟動驗證碼圖片更新定時器（非area頁面每5秒更新一次）
+     setInterval(() => {
+       const pageType = getPageType();
+       if (pageType !== "area" && document.getElementById("persistent-captcha-image")) {
+         updatePersistentCaptchaImage();
+       }
+     }, 5000);
    }
-
-   window.testSeatSearch = window.testSeatSearch;
 
    const elementObserver = new MutationObserver((mutations) => {
       let dynamicRemovedCount = 0;
@@ -1849,30 +1899,82 @@
 
    window.checkRefreshStatus = function() {
      const pageType = getPageType();
+     const now = Date.now();
+     const lastSeatAttempt = parseInt(sessionStorage.getItem('last_seat_attempt') || '0');
+     const currentActiveElement = document.activeElement;
+     const hasUserInput = currentActiveElement && (
+       currentActiveElement.tagName === 'INPUT' || 
+       currentActiveElement.tagName === 'SELECT' ||
+       currentActiveElement.tagName === 'TEXTAREA'
+     );
+     
      return {
        pageType,
-       refreshRate: window.TIXCRAFT_PERFORMANCE.refreshRate,
-       isActive: areaRefreshInterval !== null
+       refreshRate: pageType === "area" ? window.TIXCRAFT_PERFORMANCE.areaRefreshRate : window.TIXCRAFT_PERFORMANCE.refreshRate,
+       isActive: areaRefreshInterval !== null,
+       intervalId: areaRefreshInterval,
+       hasUserInput,
+       activeElement: currentActiveElement?.tagName || 'none',
+       lastSeatAttempt,
+       timeSinceLastSeat: now - lastSeatAttempt,
+       recentAttempt: now - lastSeatAttempt < 300
      };
    };
    
    window.forceStartAreaRefresh = function() {
+     console.log('🔄 Force starting area refresh...');
      setupAreaAutoRefresh();
    };
    
    window.forceStopAreaRefresh = function() {
+     console.log('⏹️ Force stopping area refresh...');
      stopAreaAutoRefresh();
    };
 
+   // 新增：直接每秒刷新（無條件）- 現在與 setupAreaAutoRefresh 相同
    window.enableDirectRefresh = function() {
-     stopAreaAutoRefresh();
-     areaRefreshInterval = setInterval(() => {
-       window.location.reload();
-     }, window.TIXCRAFT_PERFORMANCE.refreshRate);
+     console.log('🚀 Enabling direct refresh (same as setupAreaAutoRefresh now)');
+     setupAreaAutoRefresh();
+   };
+
+   // 新增：檢查為什麼沒有刷新
+   window.debugAreaRefresh = function() {
+     const status = window.checkRefreshStatus();
+     console.log('🔍 Area refresh debug info:', status);
+     
+     if (!status.isActive) {
+       console.log('❌ Area refresh is NOT active');
+       console.log('💡 Try: window.forceStartAreaRefresh()');
+     } else {
+       console.log('✅ Area refresh is active - should refresh every second with NO conditions');
+       console.log('🔄 Direct refresh mode: Every', status.refreshRate, 'ms');
+     }
+     
+     return status;
    };
 
    window.clearSeatAttempts = function() {
      sessionStorage.removeItem('last_seat_attempt');
+   };
+
+   // 新增：驗證碼相關調試功能
+   window.refreshCaptcha = function() {
+     console.log('🖼️ Manually refreshing captcha image...');
+     updatePersistentCaptchaImage();
+     getAndStoreCaptcha();
+   };
+
+   window.getCaptchaInfo = function() {
+     const pageImg = document.querySelector("#TicketForm_verifyCode-image");
+     const persistentImg = document.getElementById("persistent-captcha-image");
+     
+     return {
+       pageImageSrc: pageImg?.src || 'Not found',
+       persistentImageSrc: persistentImg?.src || 'Not found',
+       storedUrl: storedCaptchaUrl,
+       currentUrl: currentCaptchaUrl,
+       timestamp: Date.now()
+     };
    };
 
    window.startRefreshHeartbeat = function() {
