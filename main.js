@@ -17,43 +17,43 @@
     // 保存原始的 appendChild 和 insertBefore 方法
     const originalAppendChild = Node.prototype.appendChild;
     const originalInsertBefore = Node.prototype.insertBefore;
-    
+
     // 檢查元素是否應該被阻擋
     function shouldBlockElement(element) {
       if (!element || !element.tagName) return false;
-      
+
       const tagName = element.tagName.toLowerCase();
       const className = element.className || '';
       const id = element.id || '';
       const src = element.src || '';
-      
+
       // 阻擋 header 和 footer
       if (tagName === 'header' || tagName === 'footer') {
         return true;
       }
-      
+
       // 阻擋特定 ID
       if (id === 'ad-footer' || id === 'event-banner') {
         return true;
       }
-      
+
       // 阻擋包含 event-banner 的 class
       if (className.includes('event-banner')) {
         return true;
       }
-      
+
       // 阻擋不必要的追蹤和廣告腳本
       if (tagName === 'script' && src) {
-        // Google Analytics 和 GTM 
-        if (src.includes('googletagmanager.com') || 
-            src.includes('google-analytics.com') || 
+        // Google Analytics 和 GTM
+        if (src.includes('googletagmanager.com') ||
+            src.includes('google-analytics.com') ||
             src.includes('gtag/js') ||
             src.includes('doubleclick.net') ||
             src.includes('eps-mgr')) {
           return true;
         }
       }
-      
+
       // 阻擋不必要的 CSS 檔案
       if (tagName === 'link' && element.rel === 'stylesheet') {
         const href = element.href || '';
@@ -70,10 +70,10 @@
           return true;
         }
       }
-      
+
       return false;
     }
-    
+
     // 攔截 appendChild
     Node.prototype.appendChild = function(child) {
       if (shouldBlockElement(child)) {
@@ -82,7 +82,7 @@
       }
       return originalAppendChild.call(this, child);
     };
-    
+
     // 攔截 insertBefore
     Node.prototype.insertBefore = function(newNode, referenceNode) {
       if (shouldBlockElement(newNode)) {
@@ -91,7 +91,7 @@
       return originalInsertBefore.call(this, newNode, referenceNode);
     };
   }
-  
+
   // 立即執行攔截（在任何 DOM 內容載入前）
   interceptDOMCreation();
 
@@ -117,7 +117,7 @@
     AGREE_CHECKBOX: '#TicketForm_agree',
     TICKET_PRICE_SELECTS: [
       '#TicketForm_ticketPrice_01',
-      '#TicketForm_ticketPrice_02', 
+      '#TicketForm_ticketPrice_02',
       '#TicketForm_ticketPrice_03',
       '#TicketForm_ticketPrice_04',
       '#TicketForm_ticketPrice_05',
@@ -133,11 +133,11 @@
     FANCYBOX_BUTTONS: '.fancybox-button, .fancybox-close, .fancybox-item',
     CONFIRM_BUTTONS: [
       'button[class*="confirm"]',
-      'button[class*="ok"]', 
+      'button[class*="ok"]',
       'input[type="submit"]',
       'button[type="submit"]',
       '.btn-primary',
-      '.btn-success', 
+      '.btn-success',
       '.confirm-btn',
       '.btn-confirm'
     ],
@@ -235,7 +235,7 @@
   async function executeScript() {
     try {
       SUBMIT_STATE.pageLoadTime = Date.now();
-      
+
       const currentUrl = window.location.href;
       const pageType = getPageType(currentUrl);
 
@@ -262,7 +262,7 @@
       }
 
       assistantPanel = createBookingControlPanels();
-      
+
       if (pageType === "ticket" || pageType === "area" || pageType === "verify") {
         loadAndDisplayCaptcha();
       }
@@ -301,30 +301,78 @@
     return "unknown";
   }
 
+  // 獲取排除座位列表
+  function getExcludedSeats() {
+    const excludeValue = localStorage.getItem("tixcraft_exclude_seat_value") || "";
+    if (!excludeValue.trim()) return [];
+    
+    return excludeValue.split(',')
+      .map(seat => seat.trim().toUpperCase())
+      .filter(seat => seat.length > 0);
+  }
+
+  // 檢查座位是否被排除
+  function isSeatExcluded(seatText, excludeSeats) {
+    if (!excludeSeats || excludeSeats.length === 0) return false;
+    
+    return excludeSeats.some(excludeSeat => {
+      // 完全匹配
+      if (seatText === excludeSeat) return true;
+      
+      // 部分匹配（座位文字包含排除字串）
+      if (seatText.includes(excludeSeat)) return true;
+      
+      return false;
+    });
+  }
+
   function autoSelectFirstAvailableSeat() {
     try {
       preloadSeats();
-      
+
+      // 獲取排除座位列表
+      const excludeSeats = getExcludedSeats();
+      console.log('🚫 Excluded seats:', excludeSeats);
+
       const availableSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS_AVAILABLE);
       
-      if (availableSeats.length > 0) {
-        const firstSeat = availableSeats[0];
+      // 先過濾掉被排除的座位
+      const filteredSeats = Array.from(availableSeats).filter(seat => {
+        const seatText = (seat.textContent || seat.innerText).trim().toUpperCase();
+        return !isSeatExcluded(seatText, excludeSeats);
+      });
+
+      console.log(`✅ Available seats after exclusion: ${filteredSeats.length}`);
+
+      if (filteredSeats.length > 0) {
+        const firstSeat = filteredSeats[0];
+        console.log('🎯 Selecting first available seat:', firstSeat.textContent || firstSeat.innerText);
         sessionStorage.setItem('last_seat_attempt', Date.now().toString());
         firstSeat.click();
         return true;
       } else {
+        // 如果沒有符合條件的座位，檢查所有座位
         const allSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
-        for (let seat of allSeats) {
+        const filteredAllSeats = Array.from(allSeats).filter(seat => {
+          const seatText = (seat.textContent || seat.innerText).trim().toUpperCase();
+          return !isSeatExcluded(seatText, excludeSeats);
+        });
+
+        for (let seat of filteredAllSeats) {
           const style = window.getComputedStyle(seat);
           if (style.opacity === '1' || seat.style.opacity === '1') {
+            console.log('🎯 Selecting available seat from all seats:', seat.textContent || seat.innerText);
             sessionStorage.setItem('last_seat_attempt', Date.now().toString());
             seat.click();
             return true;
           }
         }
+        
+        console.log('❌ No available seats after applying exclusions');
         return false;
       }
     } catch (error) {
+      console.error('Error in autoSelectFirstAvailableSeat:', error);
       return false;
     }
   }
@@ -333,7 +381,7 @@
     setupAreaAutoRefresh();
     startContinuousMonitoring();
     preloadSeats();
-    
+
     setTimeout(() => {
       const captchaInput = document.querySelector("#persistent-captura-input");
       if (captchaInput) {
@@ -352,15 +400,15 @@
         }, 100);
       }
     }, 300);
-    
+
     const seatAutoSelectEnabled = localStorage.getItem("tixcraft_seat_auto_select") !== "false";
-    
+
     if (!seatAutoSelectEnabled) {
       return;
     }
-    
+
     const savedSeat = localStorage.getItem("tixcraft_seat_value");
-    
+
     if (!savedSeat || savedSeat.trim() === '') {
       setTimeout(() => {
         autoSelectFirstAvailableSeat();
@@ -368,7 +416,7 @@
     } else {
       const seatValue = savedSeat.trim().toUpperCase();
       sessionStorage.setItem('last_seat_attempt', Date.now().toString());
-      
+
       executeInParallel(
         () => window.testSeatSearch(seatValue),
         () => {
@@ -383,7 +431,7 @@
           return false;
         }
       );
-      
+
       window.testSeatSearch(seatValue);
       setTimeout(() => window.testSeatSearch(seatValue), 10);
       setTimeout(() => window.testSeatSearch(seatValue), 25);
@@ -401,7 +449,7 @@
               areaObserver.disconnect();
               break;
             }
-            
+
             const savedSeat = localStorage.getItem("tixcraft_seat_value");
             if (savedSeat && savedSeat.trim()) {
               window.testSeatSearch(savedSeat.trim().toUpperCase());
@@ -429,10 +477,10 @@
   function handleGamePage() {
     setupAutoRefresh();
     assistantPanel = createBookingControlPanels();
-    
+
     // Monitor for ticket buttons and auto-navigate
     monitorForTicketButtons();
-    
+
     // Also monitor for any dynamically loaded buttons
     setTimeout(() => {
       monitorForTicketButtons();
@@ -446,7 +494,7 @@
         if (selectElement) {
           const userOptionValue = localStorage.getItem("tixcraft_option_value") || "2";
           const userOption = selectElement.querySelector(`option[value="${userOptionValue}"]`);
-          
+
           if (userOption) {
             selectElement.value = userOptionValue;
             selectElement.dispatchEvent(new Event("change", { bubbles: true }));
@@ -504,20 +552,20 @@
     const seatElements = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
     PRELOADED_DATA.seats = Array.from(seatElements);
     PRELOADED_DATA.seatMap.clear();
-    
+
     seatElements.forEach(element => {
       const textContent = element.textContent || element.innerText;
-      const isAvailable = element.style.opacity === '1' || 
-                         element.style.opacity === '' || 
+      const isAvailable = element.style.opacity === '1' ||
+                         element.style.opacity === '' ||
                          !element.style.opacity ||
                          element.getAttribute('style')?.includes('opacity: 1');
-      
+
       PRELOADED_DATA.seatMap.set(textContent.trim().toUpperCase(), {
         element,
         available: isAvailable
       });
     });
-    
+
     PRELOADED_DATA.lastSeatScan = now;
     return PRELOADED_DATA.seats;
   }
@@ -537,40 +585,60 @@
       preloadSeats();
       const upperSeatValue = seatValue.toUpperCase();
       
+      // 獲取排除座位列表
+      const excludeSeats = getExcludedSeats();
+
+      // 首先檢查要搜尋的座位是否被排除
+      if (isSeatExcluded(upperSeatValue, excludeSeats)) {
+        console.log(`🚫 Seat ${upperSeatValue} is excluded, skipping`);
+        return false;
+      }
+
       if (PRELOADED_DATA.seatMap.has(upperSeatValue)) {
         const seatData = PRELOADED_DATA.seatMap.get(upperSeatValue);
-        if (seatData.available) {
+        if (seatData.available && !isSeatExcluded(upperSeatValue, excludeSeats)) {
+          console.log(`🎯 Found exact match for ${upperSeatValue}`);
           seatData.element.click();
           return true;
         }
         return false;
       }
 
+      // 搜尋包含關鍵字的座位，但排除被排除的座位
       for (let element of PRELOADED_DATA.seats) {
         const textContent = element.textContent || element.innerText;
-        if (textContent.includes(seatValue)) {
+        const seatText = textContent.trim().toUpperCase();
+        
+        if (textContent.includes(seatValue) && !isSeatExcluded(seatText, excludeSeats)) {
           const style = window.getComputedStyle(element);
           if (style.opacity === '1' || element.style.opacity === '1') {
+            console.log(`🎯 Found matching seat: ${seatText}`);
             element.click();
             return true;
           }
         }
       }
 
+      // 最後嘗試搜尋所有座位元素
       const seatElements = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
       for (let element of seatElements) {
         const textContent = element.textContent || element.innerText;
-        if (textContent.includes(seatValue)) {
+        const seatText = textContent.trim().toUpperCase();
+        
+        if (textContent.includes(seatValue) && !isSeatExcluded(seatText, excludeSeats)) {
           const style = window.getComputedStyle(element);
           if (style.opacity === '1' || element.style.opacity === '1') {
+            console.log(`🎯 Found matching seat in DOM: ${seatText}`);
             element.click();
             return true;
           }
         }
       }
 
+      console.log(`❌ No available seat found for: ${seatValue} (after exclusions)`);
       return false;
     } catch (error) {
+      console.error('Error in testSeatSearch:', error);
       return false;
     }
   };
@@ -588,7 +656,7 @@
     let element = null;
     switch(key) {
       case 'verifyInput':
-        element = document.getElementById('TicketForm_verifyCode') || 
+        element = document.getElementById('TicketForm_verifyCode') ||
                  document.querySelector('input[name="checkCode"]');
         break;
       case 'submitButton':
@@ -628,7 +696,7 @@
 
   function ultraFastSubmit() {
     let submitBtn = CACHED_ELEMENTS.submitButton;
-    
+
     if (!submitBtn) {
       for (const selector of SELECTORS.SUBMIT_BUTTONS) {
         submitBtn = document.querySelector(selector);
@@ -638,12 +706,12 @@
         }
       }
     }
-    
+
     if (submitBtn) {
       submitBtn.click();
       return true;
     }
-    
+
     return false;
   }
 
@@ -695,9 +763,9 @@
       if (!seatAutoSelectEnabled) {
         return;
       }
-      
+
       preloadSeats();
-      
+
       const savedSeat = localStorage.getItem("tixcraft_seat_value");
       if (savedSeat && savedSeat.trim()) {
         const upperSeat = savedSeat.trim().toUpperCase();
@@ -715,14 +783,14 @@
     MONITORING_SYSTEM.formMonitor = setInterval(() => {
       const currentUrl = window.location.href;
       const isVerifyPage = currentUrl.includes('/ticket/verify/');
-      
+
       if (Math.random() < 0.3) {
         getElement('verifyInput', true);
-        getElement('submitButton', true); 
+        getElement('submitButton', true);
         getElement('agreeCheckbox', true);
         getElement('ticketSelect', true);
       }
-      
+
       if (isVerifyPage) {
         const lastFillTime = parseInt(sessionStorage.getItem('last_verify_fill_time') || '0');
         const now = Date.now();
@@ -760,15 +828,15 @@
     if (areaRefreshInterval) {
       clearInterval(areaRefreshInterval);
     }
-    
+
     console.log('🔄 Area auto-refresh started - direct refresh every', window.TIXCRAFT_PERFORMANCE.areaRefreshRate, 'ms');
-    
+
     areaRefreshInterval = setInterval(() => {
       console.log('🔄 Area page refreshing now');
       window.location.reload();
     }, window.TIXCRAFT_PERFORMANCE.areaRefreshRate);
   }
-  
+
   function stopAreaAutoRefresh() {
     if (areaRefreshInterval) {
       clearInterval(areaRefreshInterval);
@@ -783,7 +851,7 @@
     const gameListContainer = document.getElementById("gameList");
     if (gameListContainer) {
       const gameListButtons = gameListContainer.querySelectorAll(SELECTORS.TICKET_BUTTONS);
-      
+
       if (gameListButtons.length > 0) {
         const selectedButton = gameListButtons[Math.min(selectedShowtimeIndex, gameListButtons.length - 1)];
         const targetUrl = selectedButton.getAttribute("data-href");
@@ -855,7 +923,7 @@
         const now = new Date();
         const currentSecond = now.getSeconds();
         const currentMillisecond = now.getMilliseconds();
-        
+
         // 計算到下一個偶數秒的等待時間
         let nextTargetSecond = currentSecond;
         if (currentSecond % 2 === 1) {
@@ -865,12 +933,12 @@
           // 如果當前是偶數秒，等到下下個偶數秒
           nextTargetSecond = currentSecond + 2;
         }
-        
+
         // 處理秒數超過60的情況
         if (nextTargetSecond >= 60) {
           nextTargetSecond = nextTargetSecond % 60;
         }
-        
+
         // 計算等待時間（毫秒）
         let waitTime;
         if (currentSecond % 2 === 1) {
@@ -880,15 +948,15 @@
           // 偶數秒，等2秒到下下個偶數秒
           waitTime = (2000 - currentMillisecond);
         }
-        
+
         console.log(`⏰ Game page: scheduling refresh in ${waitTime}ms (next even second: ${nextTargetSecond})`);
-        
+
         refreshInterval = setTimeout(() => {
           console.log('🔄 Game page refreshing at even second');
           window.location.reload();
         }, waitTime);
       }
-      
+
       // 開始調度到下一個偶數秒
       scheduleNextRefresh();
     }
@@ -904,7 +972,7 @@
   function removeUnnecessaryElements(pageType) {
     try {
       const shouldRemoveHeaders = pageType !== "unknown";
-      
+
       const headers = document.querySelectorAll('header');
       const footers = document.querySelectorAll('footer');
       const adFooters = document.querySelectorAll('#ad-footer');
@@ -946,16 +1014,16 @@
   }
 
   // Auto-refresh captcha for game page
-  
+
 
   function addConfirmedInputToVerifyForm() {
     if (window.confirmedInputAdded) {
       return;
     }
-    
+
     const formSelector = '#form-ticket-verify';
     const form = document.querySelector(formSelector);
-    
+
     if (form) {
       const existingInput = form.querySelector('input[name="confirmed"]');
       if (!existingInput) {
@@ -963,9 +1031,9 @@
         confirmedInput.type = 'hidden';
         confirmedInput.name = 'confirmed';
         confirmedInput.value = 'true';
-        
+
         form.appendChild(confirmedInput);
-        
+
         window.confirmedInputAdded = true;
       } else {
         window.confirmedInputAdded = true;
@@ -979,47 +1047,47 @@
 
   function autoFillVerificationCodes() {
     const currentUrl = window.location.href;
-    
+
     if (/^https:\/\/tixcraft\.com\/ticket\/verify\/.*/.test(currentUrl)) {
       addConfirmedInputToVerifyForm();
-      
+
       const verifyInput = document.querySelector('input[name="checkCode"]');
       const savedVerify = localStorage.getItem("tixcraft_verify_value");
-      
+
       if (verifyInput && savedVerify) {
         const now = Date.now();
-        
+
         const pageLoadKey = `tixcraft_submit_${currentUrl}_${SUBMIT_STATE.pageLoadTime}`;
         const alreadySubmittedThisPage = sessionStorage.getItem(pageLoadKey);
-        
+
         const valueChanged = verifyInput.value !== savedVerify;
         const timeSinceLastSubmit = now - SUBMIT_STATE.lastSubmitTime;
         const notRecentlySubmitted = timeSinceLastSubmit > 3000;
         const valueNotRecentlyUsed = SUBMIT_STATE.lastVerifyValue !== savedVerify;
         const notSubmittedThisPage = !alreadySubmittedThisPage;
-        
+
         if (valueChanged && notRecentlySubmitted && valueNotRecentlyUsed && notSubmittedThisPage) {
           verifyInput.value = savedVerify;
           verifyInput.dispatchEvent(new Event("input", { bubbles: true }));
-          
+
           sessionStorage.setItem(pageLoadKey, 'true');
-          
+
           const form = verifyInput.closest('form');
           let submitBtn = null;
-          
+
           if (form) {
             submitBtn = form.querySelector('button[type="submit"]');
           }
-          
+
           if (!submitBtn) {
             submitBtn = document.querySelector('button[type="submit"]');
           }
-          
+
           if (submitBtn) {
             SUBMIT_STATE.lastSubmitTime = now;
             SUBMIT_STATE.lastVerifyValue = savedVerify;
             SUBMIT_STATE.submitCount++;
-            
+
             setTimeout(() => {
               if (!sessionStorage.getItem(pageLoadKey + '_submitted')) {
                 sessionStorage.setItem(pageLoadKey + '_submitted', 'true');
@@ -1042,9 +1110,9 @@
       if (captchaInput && savedCaptura) {
         captchaInput.value = savedCaptura;
         captchaInput.dispatchEvent(new Event("input", { bubbles: true }));
-        
+
         localStorage.removeItem("tixcraft_captura_value");
-        
+
         if (assistantPanel) {
           const captchaViewerPanel = document.getElementById("tixcraft-captcha-viewer-panel");
           const capturaInput = captchaViewerPanel ? captchaViewerPanel.querySelector('input[placeholder="Enter captura code"]') : null;
@@ -1052,7 +1120,7 @@
             capturaInput.value = "";
           }
         }
-        
+
         fastSubmit();
       }
     }
@@ -1106,7 +1174,7 @@
       // 處理captcha URL，確保有最新的timestamp
       if (fullUrl.includes('/ticket/captcha')) {
         const currentTimestamp = Date.now();
-        
+
         if (fullUrl.includes('timestamp=')) {
           fullUrl = fullUrl.replace(/timestamp=\d+/, `timestamp=${currentTimestamp}`);
         } else {
@@ -1238,7 +1306,7 @@
       if (!document.getElementById("tixcraft-captcha-viewer-panel")) {
         createPersistentCaptchaViewerPanel();
       }
-      
+
       const storedCaptcha = getStoredCaptcha();
       if (storedCaptcha) {
         updateCaptchaDisplay(storedCaptcha, "Stored captcha");
@@ -1266,9 +1334,9 @@
   function updatePersistentCaptchaImage() {
     const persistentImg = document.getElementById("persistent-captcha-image");
     if (!persistentImg) return;
-    
+
     let imageUrl = null;
-    
+
     // 首先嘗試從頁面中的驗證碼圖片獲取
     const pageImg = document.querySelector("#TicketForm_verifyCode-image");
     if (pageImg && pageImg.src) {
@@ -1289,12 +1357,12 @@
         }
       }
     }
-    
+
     if (imageUrl) {
       // 處理特殊的captcha URL格式，添加timestamp參數
       if (imageUrl.includes('/ticket/captcha')) {
         const currentTimestamp = Date.now();
-        
+
         // 如果URL已經有timestamp參數，替換它
         if (imageUrl.includes('timestamp=')) {
           imageUrl = imageUrl.replace(/timestamp=\d+/, `timestamp=${currentTimestamp}`);
@@ -1308,7 +1376,7 @@
         const separator = imageUrl.includes('?') ? '&' : '?';
         imageUrl = `${imageUrl}${separator}t=${Date.now()}`;
       }
-      
+
       console.log('🖼️ Updating captcha image:', imageUrl);
       persistentImg.src = imageUrl;
       persistentImg.style.display = "block";
@@ -1334,11 +1402,11 @@
     }
 
     let captchaViewerPanel = document.getElementById("tixcraft-captcha-viewer-panel");
-    
+
     if (!captchaViewerPanel) {
       captchaViewerPanel = document.createElement("div");
       captchaViewerPanel.id = "tixcraft-captcha-viewer-panel";
-      
+
       captchaViewerPanel.setAttribute("data-persistent", "true");
       captchaViewerPanel.setAttribute("data-tixcraft-panel", "captcha");
 
@@ -1379,14 +1447,14 @@
                 border-radius: 4px;
                 cursor: pointer;
             `;
-      
+
       // 點擊圖片刷新
       captchaImg.addEventListener("click", () => {
         updatePersistentCaptchaImage();
       });
-      
+
       captchaContent.appendChild(captchaImg);
-      
+
       // 初始載入圖片
       updatePersistentCaptchaImage();
 
@@ -1404,11 +1472,11 @@
             `;
 
       capturaInput.value = localStorage.getItem("tixcraft_captura_value") || "";
-      
+
       capturaInput.addEventListener("input", () => {
         const value = capturaInput.value;
         localStorage.setItem("tixcraft_captura_value", value);
-        
+
         // 只有當輸入超過4個字符時才同步到其他input
         if (value.length >= 4) {
           document.querySelectorAll('input[name*="captcha"], input[id*="captcha"], input[placeholder*="驗證"], input[name="checkCode"]').forEach(input => {
@@ -1419,7 +1487,7 @@
               input.dispatchEvent(new Event('change', { bubbles: true }));
             }
           });
-          
+
           if (typeof autoFillVerificationCodes === 'function') {
             autoFillVerificationCodes();
           }
@@ -1428,7 +1496,7 @@
 
       captchaViewerPanel.appendChild(captchaContent);
       captchaViewerPanel.appendChild(capturaInput);
-      
+
       // 安全地添加到body
       if (document.body) {
         document.body.appendChild(captchaViewerPanel);
@@ -1438,27 +1506,27 @@
       captchaViewerPanel.style.display = "block";
       captchaViewerPanel.style.visibility = "visible";
       captchaViewerPanel.style.opacity = "1";
-      
+
       const capturaInput = captchaViewerPanel.querySelector("#persistent-captura-input");
       if (capturaInput) {
         capturaInput.value = localStorage.getItem("tixcraft_captura_value") || "";
       }
-      
+
       // 更新驗證碼圖片
       updatePersistentCaptchaImage();
     }
-    
+
     return captchaViewerPanel;
   }
 
   function protectPersistentPanel(panel) {
     if (!panel) return;
-    
+
     const originalRemove = panel.remove;
     panel.remove = function() {
       this.style.display = this.style.display === "none" ? "block" : this.style.display;
     };
-    
+
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList') {
@@ -1472,12 +1540,12 @@
         }
       });
     });
-    
+
     observer.observe(document.body, {
       childList: true,
       subtree: true
     });
-    
+
     panel._protectionObserver = observer;
   }
 
@@ -1689,7 +1757,7 @@
 
       seatCheckbox.addEventListener("change", () => {
         localStorage.setItem("tixcraft_seat_auto_select", seatCheckbox.checked.toString());
-        
+
         if (!seatCheckbox.checked) {
           // seat monitoring disabled
         }
@@ -1698,29 +1766,53 @@
       seatHeaderContainer.appendChild(seatCheckbox);
       seatHeaderContainer.appendChild(seatLabel);
 
-      const seatInput = document.createElement("input");
-      seatInput.type = "text";
-      seatInput.placeholder = "e.g. C1 (empty = auto select)";
-      seatInput.style.cssText = `
+      // 排除座位的input（優先執行）
+      const excludeSeatInput = document.createElement("input");
+      excludeSeatInput.type = "text";
+      excludeSeatInput.placeholder = "Exclude seats (e.g. A1,B2,C3)";
+      excludeSeatInput.style.cssText = `
                 width: 100%;
                 padding: 6px 8px;
-                border: 1px solid #ced4da;
+                border: 1px solid #e74c3c;
                 border-radius: 4px;
                 font-size: 12px;
                 box-sizing: border-box;
+                margin-bottom: 8px;
+                background-color: #fdf2f2;
+            `;
+
+      excludeSeatInput.value = localStorage.getItem("tixcraft_exclude_seat_value") || "";
+      excludeSeatInput.addEventListener("input", () => {
+        const excludeValue = excludeSeatInput.value.trim().toUpperCase();
+        localStorage.setItem("tixcraft_exclude_seat_value", excludeValue);
+      });
+
+      // 選擇座位的input
+      const seatInput = document.createElement("input");
+      seatInput.type = "text";
+      seatInput.placeholder = "Select seats (e.g. C1 or empty = auto select)";
+      seatInput.style.cssText = `
+                width: 100%;
+                padding: 6px 8px;
+                border: 1px solid #28a745;
+                border-radius: 4px;
+                font-size: 12px;
+                box-sizing: border-box;
+                background-color: #f2f9f2;
             `;
 
       seatInput.value = localStorage.getItem("tixcraft_seat_value") || "";
       seatInput.addEventListener("input", () => {
         const seatValue = seatInput.value.trim().toUpperCase();
         localStorage.setItem("tixcraft_seat_value", seatValue);
-        
+
         if (seatCheckbox.checked && seatValue) {
           window.testSeatSearch(seatValue);
         }
       });
 
       seatSection.appendChild(seatHeaderContainer);
+      seatSection.appendChild(excludeSeatInput);
       seatSection.appendChild(seatInput);
       mainContent.appendChild(seatSection);
 
@@ -1781,10 +1873,10 @@
   function createBookingControlPanels() {
     // Ensure persistent captcha viewer panel exists (may already exist from global init)
     createPersistentCaptchaViewerPanel();
-    
+
     // Then create booking control panel
     const bookingPanel = createBookingControlPanel();
-    
+
     return bookingPanel;
   }
 
@@ -1828,7 +1920,7 @@
      }
 
      window.testSeatSearch = window.testSeatSearch;
-     
+
      // 啟動驗證碼圖片更新定時器（非area頁面每5秒更新一次）
      setInterval(() => {
        const pageType = getPageType();
@@ -1920,11 +2012,11 @@
      const lastSeatAttempt = parseInt(sessionStorage.getItem('last_seat_attempt') || '0');
      const currentActiveElement = document.activeElement;
      const hasUserInput = currentActiveElement && (
-       currentActiveElement.tagName === 'INPUT' || 
+       currentActiveElement.tagName === 'INPUT' ||
        currentActiveElement.tagName === 'SELECT' ||
        currentActiveElement.tagName === 'TEXTAREA'
      );
-     
+
      return {
        pageType,
        refreshRate: pageType === "area" ? window.TIXCRAFT_PERFORMANCE.areaRefreshRate : window.TIXCRAFT_PERFORMANCE.refreshRate,
@@ -1937,12 +2029,12 @@
        recentAttempt: now - lastSeatAttempt < 300
      };
    };
-   
+
    window.forceStartAreaRefresh = function() {
      console.log('🔄 Force starting area refresh...');
      setupAreaAutoRefresh();
    };
-   
+
    window.forceStopAreaRefresh = function() {
      console.log('⏹️ Force stopping area refresh...');
      stopAreaAutoRefresh();
@@ -1958,7 +2050,7 @@
    window.debugAreaRefresh = function() {
      const status = window.checkRefreshStatus();
      console.log('🔍 Area refresh debug info:', status);
-     
+
      if (!status.isActive) {
        console.log('❌ Area refresh is NOT active');
        console.log('💡 Try: window.forceStartAreaRefresh()');
@@ -1966,12 +2058,48 @@
        console.log('✅ Area refresh is active - should refresh every second with NO conditions');
        console.log('🔄 Direct refresh mode: Every', status.refreshRate, 'ms');
      }
-     
+
      return status;
    };
 
    window.clearSeatAttempts = function() {
      sessionStorage.removeItem('last_seat_attempt');
+   };
+
+   // 新增：座位排除相關調試功能
+   window.testSeatExclusion = function() {
+     const excludeSeats = getExcludedSeats();
+     const allSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
+     
+     console.log('🚫 Excluded seats:', excludeSeats);
+     console.log('📍 All seats analysis:');
+     
+     Array.from(allSeats).forEach((element, index) => {
+       const seatText = (element.textContent || element.innerText).trim().toUpperCase();
+       const isExcluded = isSeatExcluded(seatText, excludeSeats);
+       const style = window.getComputedStyle(element);
+       const isAvailable = style.opacity === '1' || element.style.opacity === '1';
+       
+       console.log(`  ${index + 1}. ${seatText} - ${isAvailable ? '✅ Available' : '❌ Unavailable'} ${isExcluded ? '🚫 EXCLUDED' : '✅ OK'}`);
+     });
+     
+     return {
+       excludeSeats,
+       totalSeats: allSeats.length,
+       excludedCount: Array.from(allSeats).filter(el => isSeatExcluded((el.textContent || el.innerText).trim().toUpperCase(), excludeSeats)).length
+     };
+   };
+
+   window.getSeatInfo = function() {
+     const selectedSeat = localStorage.getItem("tixcraft_seat_value") || "";
+     const excludeSeats = localStorage.getItem("tixcraft_exclude_seat_value") || "";
+     
+     return {
+       selectedSeat,
+       excludeSeats,
+       excludeList: getExcludedSeats(),
+       autoSelectEnabled: localStorage.getItem("tixcraft_seat_auto_select") !== "false"
+     };
    };
 
    // 新增：驗證碼相關調試功能
@@ -1984,7 +2112,7 @@
    window.getCaptchaInfo = function() {
      const pageImg = document.querySelector("#TicketForm_verifyCode-image");
      const persistentImg = document.getElementById("persistent-captcha-image");
-     
+
      return {
        pageImageSrc: pageImg?.src || 'Not found',
        persistentImageSrc: persistentImg?.src || 'Not found',
@@ -1998,7 +2126,7 @@
      if (window.refreshHeartbeat) {
        clearInterval(window.refreshHeartbeat);
      }
-     
+
      window.refreshHeartbeat = setInterval(() => {
        const pageType = getPageType();
        if (pageType === "area" && !areaRefreshInterval) {
@@ -2036,21 +2164,21 @@
 
      window.enableMaxPerformanceMode = function() {
     stopAutoRefresh();
-    
+
     setTimeout(() => {
       setupAutoRefresh();
     }, 100);
   };
-  
-  
+
+
   window.getGameCaptchaStatus = function() {
     const url = localStorage.getItem("tixcraft_game_captcha_url");
     const timestamp = localStorage.getItem("tixcraft_game_captcha_timestamp");
-    
+
     if (url && timestamp) {
       const age = Date.now() - parseInt(timestamp);
       const ageSeconds = Math.floor(age / 1000);
-      
+
       return {
         url,
         timestamp: parseInt(timestamp),
