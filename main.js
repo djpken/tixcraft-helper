@@ -918,46 +918,35 @@
       /^https:\/\/tixcraft\.com\/activity\/game\/.*/.test(currentUrl) ||
       currentUrl === "https://tixcraft.com/activity/game"
     ) {
-      // 實現每2秒刷新（0、2、4、6...58秒）
+      // 實現每分鐘的第0、10、20、30、40、50秒精確觸發
+      const targetSeconds = [0, 10, 20, 30, 40, 50];
+      
       function scheduleNextRefresh() {
         const now = new Date();
         const currentSecond = now.getSeconds();
         const currentMillisecond = now.getMilliseconds();
-
-        // 計算到下一個偶數秒的等待時間
-        let nextTargetSecond = currentSecond;
-        if (currentSecond % 2 === 1) {
-          // 如果當前是奇數秒，等到下一個偶數秒
-          nextTargetSecond = currentSecond + 1;
-        } else {
-          // 如果當前是偶數秒，等到下下個偶數秒
-          nextTargetSecond = currentSecond + 2;
+        
+        // 找到下一個目標秒數
+        let nextTargetSecond = targetSeconds.find(sec => sec > currentSecond);
+        if (!nextTargetSecond) {
+          // 如果當前秒數已超過所有目標秒數，則等待下一分鐘的第0秒
+          nextTargetSecond = targetSeconds[0] + 60;
         }
-
-        // 處理秒數超過60的情況
-        if (nextTargetSecond >= 60) {
-          nextTargetSecond = nextTargetSecond % 60;
-        }
-
-        // 計算等待時間（毫秒）
-        let waitTime;
-        if (currentSecond % 2 === 1) {
-          // 奇數秒，等到下一個偶數秒
-          waitTime = (1000 - currentMillisecond);
-        } else {
-          // 偶數秒，等2秒到下下個偶數秒
-          waitTime = (2000 - currentMillisecond);
-        }
-
-        console.log(`⏰ Game page: scheduling refresh in ${waitTime}ms (next even second: ${nextTargetSecond})`);
-
+        
+        // 計算精確的等待時間（毫秒）
+        const secondsToWait = nextTargetSecond - currentSecond;
+        const millisecondsToWait = (secondsToWait * 1000) - currentMillisecond;
+        
+        console.log(`⏰ Game page: current time ${currentSecond}.${currentMillisecond.toString().padStart(3, '0')}s, next refresh in ${millisecondsToWait}ms (target: ${nextTargetSecond % 60}s)`);
+        
         refreshInterval = setTimeout(() => {
-          console.log('🔄 Game page refreshing at even second');
+          const refreshTime = new Date();
+          console.log(`🔄 Game page refreshing at ${refreshTime.getSeconds()}.${refreshTime.getMilliseconds().toString().padStart(3, '0')}s`);
           window.location.reload();
-        }, waitTime);
+        }, millisecondsToWait);
       }
-
-      // 開始調度到下一個偶數秒
+      
+      // 開始調度到下一個目標時間
       scheduleNextRefresh();
     }
   }
