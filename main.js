@@ -147,7 +147,7 @@
   window.TIXCRAFT_PERFORMANCE = {
     enabled: true,
     refreshRate: 10000,
-    areaRefreshRate: 1200, // area頁面每秒檢查
+    areaRefreshRate: 1300, 
     seatMonitorRate: 100,
     formMonitorRate: 200,
     captchaMonitorRate: 500
@@ -326,23 +326,117 @@
     });
   }
 
+  // 解析座位剩餘數量
+  function parseRemainingSeats(seatElement) {
+    const seatText = seatElement.textContent || seatElement.innerText;
+    
+    // 尋找紅色字體元素（剩餘數量信息）
+    const redFont = seatElement.querySelector('font[color="#FF0000"]');
+    if (!redFont) {
+      console.log('❌ No red font element found for remaining seats');
+      return null;
+    }
+    
+    const remainingText = redFont.textContent || redFont.innerText;
+    console.log('🔍 Parsing remaining seats from:', remainingText);
+    
+    // 匹配「熱賣中」或「Available」，表示大於5張（優先檢查）
+    if (remainingText.includes('熱賣中') || remainingText.toLowerCase().includes('available')) {
+      console.log('✅ Hot selling/Available format, assuming 6 seats');
+      return 6; // 假設為6張，表示大於5張
+    }
+    
+    // 匹配中文數字格式：「剩餘 64」
+    const chineseMatch = remainingText.match(/剩餘\s*(\d+)/);
+    if (chineseMatch) {
+      const count = parseInt(chineseMatch[1], 10);
+      console.log('✅ Chinese format parsed:', count);
+      return count;
+    }
+    
+    // 匹配英文數字格式：「1 seat(s) remaining」或「64 SEAT(S) REMAINING」
+    const englishMatch = remainingText.match(/(\d+)\s*seat\(s\)\s*remaining/i);
+    if (englishMatch) {
+      const count = parseInt(englishMatch[1], 10);
+      console.log('✅ English format parsed:', count);
+      return count;
+    }
+    
+    // 嘗試匹配純數字格式（作為備用）
+    const numberMatch = remainingText.match(/(\d+)/);
+    if (numberMatch) {
+      const count = parseInt(numberMatch[1], 10);
+      console.log('✅ Number format parsed:', count);
+      return count;
+    }
+    
+    console.log('❌ Unable to parse remaining seats format from:', remainingText);
+    return null; // 無法解析
+  }
+
+  // 獲取所需座位數量
+  function getRequiredSeatCount() {
+    // 從tixcraft_option_value獲取座位數量
+    const storedOptionValue = localStorage.getItem("tixcraft_option_value");
+    if (storedOptionValue) {
+      const count = parseInt(storedOptionValue, 10);
+      if (!isNaN(count) && count > 0) {
+        console.log('🎫 Required seat count from tixcraft_option_value:', count);
+        return count;
+      }
+    }
+    
+    console.log('🎫 Required seat count default:', 1);
+    return 1; // 默認1張
+  }
+
+  // 檢查座位數量是否足夠
+  function hasSufficientSeats(seatElement, requiredCount) {
+    const remainingCount = parseRemainingSeats(seatElement);
+    
+    if (remainingCount === null) {
+      // 無法解析剩餘數量，假設足夠（保持原有行為）
+      console.log('⚠️ Cannot parse remaining seats, assuming sufficient');
+      return true;
+    }
+    
+    const sufficient = remainingCount >= requiredCount;
+    console.log(`🔢 Seat check: required=${requiredCount}, remaining=${remainingCount}, sufficient=${sufficient}`);
+    
+    return sufficient;
+  }
+
   function autoSelectFirstAvailableSeat() {
     try {
       preloadSeats();
 
-      // 獲取排除座位列表
+      // 獲取排除座位列表和所需座位數量
       const excludeSeats = getExcludedSeats();
+      const requiredCount = getRequiredSeatCount();
       console.log('🚫 Excluded seats:', excludeSeats);
+      console.log('🎫 Required seat count:', requiredCount);
 
       const availableSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS_AVAILABLE);
       
-      // 先過濾掉被排除的座位
+      // 過濾掉被排除的座位和數量不足的座位
       const filteredSeats = Array.from(availableSeats).filter(seat => {
         const seatText = (seat.textContent || seat.innerText).trim().toUpperCase();
-        return !isSeatExcluded(seatText, excludeSeats);
+        
+        // 檢查是否被排除
+        if (isSeatExcluded(seatText, excludeSeats)) {
+          return false;
+        }
+        
+        // 檢查座位數量是否足夠
+        if (!hasSufficientSeats(seat, requiredCount)) {
+          console.log('❌ Insufficient seats for:', seatText);
+          return false;
+        }
+        
+        return true;
       });
 
-      console.log(`✅ Available seats after exclusion: ${filteredSeats.length}`);
+      console.log(`✅ Available seats after exclusion and quantity check: ${filteredSeats.length}`);
 
       if (filteredSeats.length > 0) {
         const firstSeat = filteredSeats[0];
@@ -355,7 +449,18 @@
         const allSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
         const filteredAllSeats = Array.from(allSeats).filter(seat => {
           const seatText = (seat.textContent || seat.innerText).trim().toUpperCase();
-          return !isSeatExcluded(seatText, excludeSeats);
+          
+          // 檢查是否被排除
+          if (isSeatExcluded(seatText, excludeSeats)) {
+            return false;
+          }
+          
+          // 檢查座位數量是否足夠
+          if (!hasSufficientSeats(seat, requiredCount)) {
+            return false;
+          }
+          
+          return true;
         });
 
         for (let seat of filteredAllSeats) {
@@ -368,7 +473,7 @@
           }
         }
         
-        console.log('❌ No available seats after applying exclusions');
+        console.log('❌ No available seats after applying exclusions and quantity checks');
         return false;
       }
     } catch (error) {
@@ -597,6 +702,13 @@
       if (PRELOADED_DATA.seatMap.has(upperSeatValue)) {
         const seatData = PRELOADED_DATA.seatMap.get(upperSeatValue);
         if (seatData.available && !isSeatExcluded(upperSeatValue, excludeSeats)) {
+          // 檢查座位數量是否足夠
+          const requiredCount = getRequiredSeatCount();
+          if (!hasSufficientSeats(seatData.element, requiredCount)) {
+            console.log(`❌ Insufficient seats for exact match: ${upperSeatValue}`);
+            return false;
+          }
+          
           console.log(`🎯 Found exact match for ${upperSeatValue}`);
           seatData.element.click();
           return true;
@@ -604,7 +716,9 @@
         return false;
       }
 
-      // 搜尋包含關鍵字的座位，但排除被排除的座位
+      // 搜尋包含關鍵字的座位，但排除被排除的座位和數量不足的座位
+      const requiredCount = getRequiredSeatCount();
+      
       for (let element of PRELOADED_DATA.seats) {
         const textContent = element.textContent || element.innerText;
         const seatText = textContent.trim().toUpperCase();
@@ -612,6 +726,12 @@
         if (textContent.includes(seatValue) && !isSeatExcluded(seatText, excludeSeats)) {
           const style = window.getComputedStyle(element);
           if (style.opacity === '1' || element.style.opacity === '1') {
+            // 檢查座位數量是否足夠
+            if (!hasSufficientSeats(element, requiredCount)) {
+              console.log(`❌ Insufficient seats for: ${seatText}`);
+              continue;
+            }
+            
             console.log(`🎯 Found matching seat: ${seatText}`);
             element.click();
             return true;
@@ -628,6 +748,12 @@
         if (textContent.includes(seatValue) && !isSeatExcluded(seatText, excludeSeats)) {
           const style = window.getComputedStyle(element);
           if (style.opacity === '1' || element.style.opacity === '1') {
+            // 檢查座位數量是否足夠
+            if (!hasSufficientSeats(element, requiredCount)) {
+              console.log(`❌ Insufficient seats for: ${seatText}`);
+              continue;
+            }
+            
             console.log(`🎯 Found matching seat in DOM: ${seatText}`);
             element.click();
             return true;
@@ -2082,13 +2208,64 @@
    window.getSeatInfo = function() {
      const selectedSeat = localStorage.getItem("tixcraft_seat_value") || "";
      const excludeSeats = localStorage.getItem("tixcraft_exclude_seat_value") || "";
+     const requiredCount = getRequiredSeatCount();
      
      return {
        selectedSeat,
        excludeSeats,
        excludeList: getExcludedSeats(),
+       requiredSeatCount: requiredCount,
        autoSelectEnabled: localStorage.getItem("tixcraft_seat_auto_select") !== "false"
      };
+   };
+
+   // 新增：座位數量檢查調試功能
+   window.checkSeatQuantities = function() {
+     const availableSeats = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS_AVAILABLE);
+     const requiredCount = getRequiredSeatCount();
+     
+     console.log(`🔍 Checking seat quantities (required: ${requiredCount})`);
+     
+     const seatInfo = Array.from(availableSeats).map(seat => {
+       const seatText = (seat.textContent || seat.innerText).trim();
+       const remainingCount = parseRemainingSeats(seat);
+       const sufficient = hasSufficientSeats(seat, requiredCount);
+       
+       return {
+         text: seatText,
+         remaining: remainingCount,
+         sufficient: sufficient
+       };
+     });
+     
+     console.table(seatInfo);
+     return seatInfo;
+   };
+
+   window.setSeatCount = function(count) {
+     localStorage.setItem("tixcraft_required_seats", count.toString());
+     console.log(`🎫 Set required seat count to: ${count}`);
+   };
+
+   // 測試特定座位的數量檢查
+   window.testSeatQuantityCheck = function(seatText) {
+     const seatElements = document.querySelectorAll(SELECTORS.SEAT_ELEMENTS);
+     const requiredCount = getRequiredSeatCount();
+     
+     for (let element of seatElements) {
+       const textContent = element.textContent || element.innerText;
+       if (textContent.includes(seatText)) {
+         console.log('🔍 Testing seat:', textContent);
+         const remainingCount = parseRemainingSeats(element);
+         const sufficient = hasSufficientSeats(element, requiredCount);
+         
+         console.log(`Required: ${requiredCount}, Remaining: ${remainingCount}, Sufficient: ${sufficient}`);
+         return { textContent, remainingCount, sufficient, requiredCount };
+       }
+     }
+     
+     console.log('❌ Seat not found:', seatText);
+     return null;
    };
 
    // 新增：驗證碼相關調試功能
